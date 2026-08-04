@@ -9,12 +9,6 @@ def _load_env() -> None:
     load_dotenv()
 
 
-def _load_config():
-    from app.config import Config
-
-    return Config()
-
-
 @cli.command()
 def serve(
     host: str = typer.Option("0.0.0.0", help="Bind host"),
@@ -26,16 +20,6 @@ def serve(
 
     _load_env()
     uvicorn.run("app.server:local_factory", factory=True, host=host, port=port, reload=reload)
-
-
-@cli.command()
-def bot() -> None:
-    """Start the Telegram bot."""
-    _load_env()
-    config = _load_config()
-    from app.bot.bot import run_bot
-
-    run_bot(config)
 
 
 @cli.command()
