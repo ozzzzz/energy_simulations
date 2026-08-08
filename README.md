@@ -35,6 +35,14 @@ uv run app sim0-dashboard --scenario cooling_failure
 
 Add `--duration <seconds>` / `--dt <seconds>` to override the default week / 1-minute tick.
 
+There's also an input/output-focused dashboard (`sim0-dashboard-io`): same data, laid out so it's unmistakable
+which lines the rack doesn't control (inputs — dashed: workload demand, power/cooling actually available)
+vs what the rack does in response (outputs — solid: draw, IT load/PSU loss split, temperature, cooling used).
+
+```bash
+uv run app sim0-dashboard-io --scenario cooling_failure
+```
+
 ### Terminology
 
 Field/unit names follow standard data center and GPU industry usage, not invented shorthand:

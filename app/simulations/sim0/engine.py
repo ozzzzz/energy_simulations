@@ -43,6 +43,11 @@ def run_scenario(scenario_name: str, duration_s: float = 600.0, dt: float = 1.0)
                 # heat concurrently, not as a fallback — split by the rack's fixed ratio
                 row["liquid_kw"] = row["consumed_kw"] * rack.liquid_capture_rate
                 row["air_kw"] = row["consumed_kw"] * (1.0 - rack.liquid_capture_rate)
+                # same value on every rack's row this tick (facility-wide signal) — lets
+                # the actual input curve (e.g. a cooling incident's capacity dip) be
+                # plotted directly, instead of only inferred from the output it caused.
+                row["power_available_kw"] = power_available_kw
+                row["cooling_available_kw"] = cooling_available_kw
                 row["t"] = t
                 rows.append(row)
                 tick_consumed_kw += row["consumed_kw"]
