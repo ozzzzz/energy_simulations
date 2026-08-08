@@ -46,18 +46,16 @@ def test_training_profile_does_not_follow_the_day_night_cycle() -> None:
     assert {workload._base_kw(PEAK_T + i) for i in range(300)} == {workload._base_kw(TROUGH_T + i) for i in range(300)}
 
 
-def test_mixed_profile_switches_phases_over_time() -> None:
-    workload = WorkloadInput("mixed")
-    assert workload._base_kw(10.0) == 20.0
-    assert workload._base_kw(100.0) in {100.0, 150.0}
-    # inference phase (t >= 300) still follows the day/night cycle
-    assert workload._base_kw(PEAK_T) > workload._base_kw(TROUGH_T)
-    assert round(workload._base_kw(PEAK_T), 1) in {90.0, 140.0}
-
-
 def test_unknown_profile_raises() -> None:
     with pytest.raises(ValueError):
         WorkloadInput("bogus").demand_kw(0.0)
+
+
+def test_mixed_is_not_a_workload_profile() -> None:
+    # "mixed" is a scenario-level per-rack assignment (see scenarios.py), not its own
+    # WorkloadInput shape — only idle/inference/training exist at that level.
+    with pytest.raises(ValueError):
+        WorkloadInput("mixed").demand_kw(0.0)
 
 
 def test_demand_kw_jitters_around_the_base_shape() -> None:
@@ -81,11 +79,11 @@ def test_power_input_is_constant() -> None:
     assert power.step(t=0.0, dt=1.0, requested_kw=0.0) == power.step(t=9999.0, dt=1.0, requested_kw=500.0) == 750.0
 
 
-def test_cooling_input_splits_liquid_and_air() -> None:
+def test_cooling_input_combines_liquid_and_air_capacity() -> None:
     cooling = CoolingInput(liquid_capacity_kw=600.0, air_capacity_kw=100.0)
-    assert cooling.liquid_step(0.0, 1.0, 0.0) == cooling.liquid_step(9999.0, 1.0, 0.0) == 600.0
-    assert cooling.air_step(0.0, 1.0, 0.0) == cooling.air_step(9999.0, 1.0, 0.0) == 100.0
-    assert cooling.step(0.0, 1.0, 0.0) == 700.0
+    assert cooling.liquid_capacity_kw == 600.0
+    assert cooling.air_capacity_kw == 100.0
+    assert cooling.step(0.0, 1.0, 0.0) == cooling.step(9999.0, 1.0, 0.0) == 700.0
 
 
 def test_cooling_input_failure_window_cuts_capacity() -> None:

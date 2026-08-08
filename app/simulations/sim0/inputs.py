@@ -64,12 +64,6 @@ class WorkloadInput:
         if self.profile == "training":
             # scheduled batch jobs: sustained near-peak regardless of time of day
             return _dip(t, period=300.0, width=10.0, high=150.0, low=100.0)
-        if self.profile == "mixed":
-            if t < 60.0:
-                return 20.0
-            if t < 300.0:
-                return _dip(t - 60.0, period=300.0, width=10.0, high=150.0, low=100.0)
-            return _pulse(t - 300.0, period=30.0, width=5.0, low=90.0, high=140.0) * _diurnal_factor(t)
         raise ValueError(f"unknown workload profile: {self.profile!r}")
 
 
@@ -103,10 +97,10 @@ class CoolingInput:
     (no failure-probability model, no repair process) — a real Cooling Plant
     object with its own failure/recovery physics is a sim_1 concern.
 
-    step()/liquid_step()/air_step()'s dt/requested_kw are accepted but unused, same
-    reasoning as PowerInput.step(). requested_kw is conventionally the *previous*
-    tick's actual heat load (see engine.py) since this tick's load isn't known until
-    after Rack.step runs — a real Cooling Plant reacting to load can use that lag."""
+    step()'s dt/requested_kw are accepted but unused, same reasoning as PowerInput.step().
+    requested_kw is conventionally the *previous* tick's actual heat load (see engine.py)
+    since this tick's load isn't known until after Rack.step runs — a real Cooling Plant
+    reacting to load can use that lag."""
 
     liquid_capacity_kw: float = 630.0
     air_capacity_kw: float = 70.0
@@ -114,17 +108,8 @@ class CoolingInput:
     failure_end_s: float | None = None
     failure_severity: float = 0.0  # fraction of capacity lost during the incident window
 
-    def _capacity_factor(self, t: float) -> float:
-        if self.failure_start_s is None:
-            return 1.0
-        end_s = self.failure_end_s if self.failure_end_s is not None else float("inf")
-        return (1.0 - self.failure_severity) if self.failure_start_s <= t < end_s else 1.0
-
     def step(self, t: float, dt: float, requested_kw: float) -> float:
-        return self.liquid_step(t, dt, requested_kw) + self.air_step(t, dt, requested_kw)
-
-    def liquid_step(self, t: float, dt: float, requested_kw: float) -> float:
-        return self.liquid_capacity_kw * self._capacity_factor(t)
-
-    def air_step(self, t: float, dt: float, requested_kw: float) -> float:
-        return self.air_capacity_kw * self._capacity_factor(t)
+        end_s = self.failure_end_s if self.failure_end_s is not None else float("inf")
+        in_failure = self.failure_start_s is not None and self.failure_start_s <= t < end_s
+        factor = (1.0 - self.failure_severity) if in_failure else 1.0
+        return (self.liquid_capacity_kw + self.air_capacity_kw) * factor

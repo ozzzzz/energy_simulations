@@ -12,11 +12,23 @@ class RackState(StrEnum):
 
 @dataclass
 class Rack:
-    """GB300 NVL72 rack. nominal_kw/peak_kw/throttle_temp_c/liquid_heat_fraction are
-    published specs (132 kW TDP, ~155 kW peak EDPp, 85°C junction throttle, ~90% of
-    heat captured by liquid cold plates vs ~10% by air on OSFP/storage/PDB); shutdown_temp_c,
-    recovery_temp_c, thermal_mass_kws_per_c and throttle_ratio have no public
-    source and are our own placeholders for the simplified thermal model."""
+    """GB300 NVL72 rack. nominal_kw/peak_kw/throttle_temp_c/liquid_capture_rate are
+    published specs — nominal_kw is TDP (Thermal Design Power), peak_kw is EDPp
+    (Electrical Design Power, peak), throttle_temp_c is the GPU junction throttle
+    point (85°C), liquid_capture_rate is the fraction of rack heat captured by
+    liquid cold plates vs air (~90/10 for GB300 NVL72's direct-liquid-cooled
+    GPU/CPU/NVSwitch vs air-cooled OSFP/storage/PDB). shutdown_temp_c,
+    recovery_temp_c, thermal_mass_kws_per_c, throttle_ratio and psu_efficiency
+    have no public source and are our own placeholders for the simplified model
+    (psu_efficiency ~97% is a typical high-efficiency PSU/VRM figure, not a
+    GB300-specific spec).
+
+    consumed_kw is the rack's total electrical draw from the PDU (what peak_kw/
+    EDPp actually limits, and what fully turns into heat regardless of where the
+    loss happens). psu_efficiency only splits that same draw for reporting: it_kw
+    is the useful compute power that reaches the GPUs, loss_kw is PSU/VRM
+    conversion loss — it does NOT change the thermal calc, which already uses
+    total draw as total heat."""
 
     name: str
     nominal_kw: float = 132.0
@@ -27,7 +39,8 @@ class Rack:
     recovery_temp_c: float = 70.0
     thermal_mass_kws_per_c: float = 900.0
     throttle_ratio: float = 0.6
-    liquid_heat_fraction: float = 0.9
+    liquid_capture_rate: float = 0.9
+    psu_efficiency: float = 0.97
 
     temp_c: float = field(init=False)
     state: RackState = field(init=False)
@@ -78,5 +91,7 @@ class Rack:
             "state": self.state.value,
             "demand_kw": demand_kw,
             "consumed_kw": consumed_kw,
+            "it_kw": consumed_kw * self.psu_efficiency,
+            "loss_kw": consumed_kw * (1.0 - self.psu_efficiency),
             "temp_c": self.temp_c,
         }

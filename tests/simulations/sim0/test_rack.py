@@ -1,4 +1,16 @@
+import pytest
+
 from app.simulations.sim0.rack import Rack, RackState
+
+
+def test_rack_splits_draw_into_it_power_and_psu_loss() -> None:
+    rack = Rack(name="r1", psu_efficiency=0.97)
+
+    row = rack.step(dt=1.0, demand_kw=100.0, power_scale=1.0, cooling_available_kw=175.0)
+
+    assert row["it_kw"] == pytest.approx(row["consumed_kw"] * 0.97)
+    assert row["loss_kw"] == pytest.approx(row["consumed_kw"] * 0.03)
+    assert row["it_kw"] + row["loss_kw"] == pytest.approx(row["consumed_kw"])
 
 
 def test_rack_stays_running_when_cooling_keeps_up() -> None:

@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 import pandas as pd
 import simpy
 
@@ -13,7 +15,7 @@ def run_scenario(scenario_name: str, duration_s: float = 600.0, dt: float = 1.0)
 
     env = simpy.Environment()
 
-    def tick() -> "simpy.events.ProcessGenerator":
+    def tick() -> Generator[simpy.Event, None, None]:
         prev_total_consumed_kw = 0.0
         while True:
             t = env.now
@@ -39,8 +41,8 @@ def run_scenario(scenario_name: str, duration_s: float = 600.0, dt: float = 1.0)
                 )
                 # liquid (GPU/CPU/NVSwitch cold plates) and air (OSFP/storage/PDB) carry
                 # heat concurrently, not as a fallback — split by the rack's fixed ratio
-                row["liquid_kw"] = row["consumed_kw"] * rack.liquid_heat_fraction
-                row["air_kw"] = row["consumed_kw"] * (1.0 - rack.liquid_heat_fraction)
+                row["liquid_kw"] = row["consumed_kw"] * rack.liquid_capture_rate
+                row["air_kw"] = row["consumed_kw"] * (1.0 - rack.liquid_capture_rate)
                 row["t"] = t
                 rows.append(row)
                 tick_consumed_kw += row["consumed_kw"]
@@ -64,14 +66,26 @@ def _count_transitions(states: pd.Series, state: str) -> int:
 
 def _summarize(df: pd.DataFrame, dt: float) -> dict:
     if df.empty:
-        return {"uptime_pct": 100.0, "energy_kwh": 0.0, "throttle_events": 0, "shutdown_events": 0}
+        return {
+            "uptime_pct": 100.0,
+            "energy_kwh": 0.0,
+            "delivery_efficiency_pct": 100.0,
+            "throttle_events": 0,
+            "shutdown_events": 0,
+        }
 
     by_tick = df.groupby("t")["state"]
     total_ticks = by_tick.ngroups
     all_down_ticks = by_tick.apply(lambda s: (s == RackState.EMERGENCY_SHUTDOWN.value).all()).sum()
     uptime_pct = 100.0 * (total_ticks - all_down_ticks) / total_ticks
 
-    energy_kwh = df["consumed_kw"].sum() * dt / 3600.0
+    total_draw_kw = df["consumed_kw"].sum()
+    energy_kwh = total_draw_kw * dt / 3600.0
+    # share of electrical draw that reaches the GPUs as useful compute power rather
+    # than PSU/VRM conversion loss — a partial PUE-style figure (just the power-delivery
+    # chain within the rack, not full facility PUE: cooling's own electrical draw and
+    # upstream UPS/transformer loss aren't tracked, see docs/sim_0_plan.md).
+    delivery_efficiency_pct = 100.0 * df["it_kw"].sum() / total_draw_kw if total_draw_kw > 0 else 100.0
 
     throttle_events = 0
     shutdown_events = 0
@@ -83,6 +97,7 @@ def _summarize(df: pd.DataFrame, dt: float) -> dict:
     return {
         "uptime_pct": round(uptime_pct, 2),
         "energy_kwh": round(energy_kwh, 3),
+        "delivery_efficiency_pct": round(delivery_efficiency_pct, 2),
         "throttle_events": throttle_events,
         "shutdown_events": shutdown_events,
     }
