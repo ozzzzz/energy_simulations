@@ -35,9 +35,14 @@ uv run app sim0-dashboard --scenario cooling_failure
 
 Add `--duration <seconds>` / `--dt <seconds>` to override the default week / 1-minute tick.
 
-There's also an input/output-focused dashboard (`sim0-dashboard-io`): same data, laid out so it's unmistakable
-which lines the rack doesn't control (inputs — dashed: workload demand, power/cooling actually available)
-vs what the rack does in response (outputs — solid: draw, IT load/PSU loss split, temperature, cooling used).
+There's also an energy-flow dashboard (`sim0-dashboard-io`): a Sankey diagram tracing where every kW of
+draw actually goes — demand splits into delivered vs curtailed, delivered draw splits into useful IT compute
+vs PSU/VRM loss, and all of it ends up as heat split between liquid and air — plus a per-rack drill-down
+(demand vs draw, temperature). A dropdown compares the whole run against just the cooling-incident window.
+
+Note: "power available" (electricity the rack can draw — an energy *input*) and "cooling available" (heat
+the site can remove — a capacity for an *output*) are different physical quantities, not two flavors of the
+same thing, even though both happen to be measured in kW.
 
 ```bash
 uv run app sim0-dashboard-io --scenario cooling_failure

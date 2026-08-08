@@ -9,6 +9,11 @@ from app.simulations.sim0.scenarios import get_scenario
 
 _RACK_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
 
+# liquid/air must stay visually distinct wherever they appear (Sankey nodes, cooling
+# chart) — a previous teal-vs-pale-teal pairing here was nearly indistinguishable.
+_LIQUID_COLOR = "#17becf"
+_AIR_COLOR = "#bcbd22"
+
 _NODE_LABELS = [
     "Workload demand",  # 0 input
     "Electrical draw",  # 1
@@ -19,7 +24,7 @@ _NODE_LABELS = [
     "Removed via liquid",  # 6 output
     "Removed via air",  # 7 output
 ]
-_NODE_COLORS = ["#7f7f7f", "#1f77b4", "#d62728", "#2ca02c", "#e07b39", "#8c564b", "#17becf", "#9edae5"]
+_NODE_COLORS = ["#7f7f7f", "#1f77b4", "#d62728", "#2ca02c", "#e07b39", "#8c564b", _LIQUID_COLOR, _AIR_COLOR]
 
 
 def _window_options(scenario) -> list[dict]:
@@ -97,7 +102,7 @@ def _sankey_figure(totals: dict, title: str) -> go.Figure:
                     "rgba(44,160,44,0.35)",
                     "rgba(224,123,57,0.35)",
                     "rgba(23,190,207,0.35)",
-                    "rgba(158,218,229,0.35)",
+                    "rgba(188,189,34,0.35)",
                 ],
             },
         )
@@ -124,6 +129,51 @@ def _context_figure(df: pd.DataFrame, scenario, window: str) -> go.Figure:
         xaxis_title="t, s",
         yaxis_title="kW",
         height=260,
+        margin={"t": 40},
+    )
+    return fig
+
+
+def _cooling_figure(df: pd.DataFrame, kpis: dict, scenario, window: str) -> go.Figure:
+    """Cooling isn't one channel: liquid (direct-to-chip) carries most of the heat,
+    air carries the rest, at a fixed 90/10 split. This is heat REMOVED (an output),
+    plotted against each channel's nameplate capacity (a fixed input) — separate
+    from the Sankey's aggregate totals, this shows how that split moves over time,
+    e.g. whether either channel is running close to its own limit."""
+    facility = df.groupby("t")[["liquid_kw", "air_kw"]].sum().reset_index()
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=facility["t"],
+            y=facility["liquid_kw"],
+            mode="lines",
+            name="liquid removed",
+            line={"color": _LIQUID_COLOR},
+        )
+    )
+    fig.add_trace(
+        go.Scatter(x=facility["t"], y=facility["air_kw"], mode="lines", name="air removed", line={"color": _AIR_COLOR})
+    )
+    fig.add_hline(
+        y=kpis["cooling_liquid_capacity_kw"],
+        line_dash="dot",
+        line_color=_LIQUID_COLOR,
+        annotation_text="liquid capacity",
+    )
+    fig.add_hline(
+        y=kpis["cooling_air_capacity_kw"], line_dash="dot", line_color=_AIR_COLOR, annotation_text="air capacity"
+    )
+
+    start_s, end_s = _window_bounds(scenario, window)
+    if start_s is not None:
+        fig.add_vrect(x0=start_s, x1=end_s, fillcolor="blue", opacity=0.12, line_width=0)
+
+    fig.update_layout(
+        title="Cooling by channel: liquid vs air (facility total), against nameplate capacity",
+        xaxis_title="t, s",
+        yaxis_title="kW",
+        height=300,
         margin={"t": 40},
     )
     return fig
@@ -242,6 +292,7 @@ def build_app(df: pd.DataFrame, kpis: dict, scenario_name: str) -> Dash:
             ),
             dcc.Graph(id="sankey-graph"),
             dcc.Graph(id="context-graph"),
+            dcc.Graph(id="cooling-graph"),
             html.H3("Per-rack detail"),
             dcc.Graph(id="detail-graph"),
         ],
@@ -251,6 +302,7 @@ def build_app(df: pd.DataFrame, kpis: dict, scenario_name: str) -> Dash:
     @app.callback(
         Output("sankey-graph", "figure"),
         Output("context-graph", "figure"),
+        Output("cooling-graph", "figure"),
         Output("detail-graph", "figure"),
         Input("window-dropdown", "value"),
     )
@@ -262,6 +314,7 @@ def build_app(df: pd.DataFrame, kpis: dict, scenario_name: str) -> Dash:
         return (
             _sankey_figure(totals, title),
             _context_figure(display_df, scenario, window),
+            _cooling_figure(display_df, kpis, scenario, window),
             _detail_figure(display_df, scenario, window),
         )
 
