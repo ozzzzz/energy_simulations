@@ -1,113 +1,66 @@
-# python_template
+# Energy Simulations
 
-Minimal Python service template with FastAPI, Telegram bot, uv, Docker, and GitHub Actions.
+Discrete-event simulations of AI data center energy systems (SimPy), with a CLI to run scenarios and a Dash/Plotly viewer.
 
-## Stack
+## Simulations
 
-- **[uv](https://docs.astral.sh/uv/)** — package manager
-- **FastAPI** — HTTP API (`/api/v1/`)
-- **pydantic-settings** — config from env vars
-- **Typer** — CLI (`serve`, `bot`, `generate-openapi`)
-- **python-telegram-bot** — Telegram bot
-- **Ruff** — linter + formatter
-- **Pyright** — type checker
-- **Docker** — containerization
-- **GitHub Actions** — CI (lint, test, docker build)
+### Sim-0 — rack-centric ([docs/sim_0_plan.md](docs/sim_0_plan.md))
 
-## Using as a Template
+4 GPU racks as the modeled core; power/cooling/workload are input signals. Cooling is split into
+liquid (direct-to-chip, handles most of the load) and air (residual). Default run length is one
+week at a 1-minute tick, long enough to show the daily peak (users active) / trough (asleep) cycle.
 
-### On GitHub
+Scenarios (`--scenario`):
 
-Go to the repo → **Settings** → enable **"Template repository"**.
-
-Then: **Use this template** → **Create a new repository**.
-
-### With gh CLI
+| Scenario | Profile |
+|---|---|
+| `inference` | user-driven traffic: short request spikes, follows the day/night cycle |
+| `training` | scheduled batch jobs: sustained near-peak draw with rare dips (checkpoint/sync), runs flat around the clock |
+| `mixed` | rack 1 trains, racks 2-4 serve inference, all at once |
+| `cooling_failure` | training load + a scripted CDU/chiller incident on day 3 (cooling cut to 15% for 1.5 days) — exercises throttle/shutdown/recovery |
 
 ```bash
-gh repo create my-new-service --template ozzzzz/python_template --private --clone
-cd my-new-service
-```
-
-## Rename the Project
-
-After cloning, run the rename script (pure stdlib, no deps needed):
-
-```bash
-# Rename app/ → my_service/, update all imports and config
-uv run python rename.py my_service
-
-# Also rename env prefix: APP_ → MY_SERVICE_
-uv run python rename.py my_service --env-prefix MY_SERVICE
-
-# Preview without changing anything
-uv run python rename.py my_service --dry-run
-```
-
-## Getting Started
-
-```bash
-cp .env.example .env   # fill in APP_TELEGRAM_TOKEN at minimum
 uv sync
+
+uv run app sim0-run --scenario inference --output /tmp/inference.csv
+uv run app sim0-run --scenario training --output /tmp/training.csv
+uv run app sim0-run --scenario mixed --output /tmp/mixed.csv
+uv run app sim0-run --scenario cooling_failure --output /tmp/cooling_failure.csv
+
+uv run app sim0-dashboard --scenario inference
+uv run app sim0-dashboard --scenario training
+uv run app sim0-dashboard --scenario mixed
+uv run app sim0-dashboard --scenario cooling_failure
 ```
 
-Run the API server:
+Add `--duration <seconds>` / `--dt <seconds>` to override the default week / 1-minute tick.
 
-```bash
-uv run app serve
-# or with options:
-uv run app serve --port 8080 --reload
-```
+The dashboard is a Sankey diagram tracing where every kW of draw actually goes — demand splits into
+delivered vs curtailed, delivered draw splits into useful IT compute vs PSU/VRM loss, and all of it ends up
+as heat split between liquid and air — plus a cooling-by-channel chart and a per-rack drill-down (demand vs
+draw, temperature). A dropdown compares the whole run against just the cooling-incident window.
 
-Run the Telegram bot:
+Note: "power available" (electricity the rack can draw — an energy *input*) and "cooling available" (heat
+the site can remove — a capacity for an *output*) are different physical quantities, not two flavors of the
+same thing, even though both happen to be measured in kW.
 
-```bash
-uv run app bot
-```
+### Terminology
 
-Generate OpenAPI schema:
+Field/unit names follow standard data center and GPU industry usage, not invented shorthand:
 
-```bash
-uv run app generate-openapi
-# outputs to docs/openapi.json
-```
-
-## Project Structure
-
-```
-app/
-├── config.py          # pydantic-settings, APP_ env var prefix
-├── server.py          # FastAPI app, CORS, lifespan
-├── cli.py             # Typer CLI entry point
-├── v1/
-│   ├── router.py      # /api/v1 prefix
-│   └── routes/
-│       └── health.py  # GET /api/v1/health
-└── bot/
-    └── bot.py         # Telegram bot (polling)
-tests/
-.env.example
-Dockerfile
-docker-compose.yml
-.pre-commit-config.yaml
-pyrightconfig.json
-rename.py
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `APP_LOG_LEVEL` | `INFO` | Logging level |
-| `APP_DEBUG` | `false` | FastAPI debug mode |
-| `APP_ALLOWED_ORIGINS` | `*` | CORS origins, semicolon-separated |
-| `APP_TELEGRAM_TOKEN` | — | Telegram bot token (required) |
-
-## Docker
-
-```bash
-docker compose up --build
-```
+| Term | Meaning |
+|---|---|
+| kW / kWh | Real power / energy — SI units used throughout (no kVA/power-factor modeling) |
+| °C | Temperature — Celsius, standard in DC thermal specs (ASHRAE) |
+| `nominal_kw` | TDP (Thermal Design Power) — sustained rated draw |
+| `peak_kw` | EDPp (Electrical Design Power, peak) — burst draw a circuit must be provisioned for |
+| `throttle_temp_c` | GPU junction throttle threshold (Tj) — vendor-published thermal limit before throttling |
+| `liquid_capture_rate` | Liquid capture rate — fraction of rack heat removed by direct liquid cooling (DLC) vs air, a standard DLC data center metric |
+| `consumed_kw` | The rack's total electrical draw from the PDU (what `peak_kw`/EDPp actually limits) — fully becomes heat regardless of conversion loss |
+| `psu_efficiency` / `it_kw` / `loss_kw` | PSU/VRM efficiency splits that same draw into useful IT load (`it_kw`) vs conversion loss (`loss_kw`), for reporting only — both still count as heat |
+| `delivery_efficiency_pct` | `it_kw ÷ consumed_kw` — a partial, rack-level PUE-style figure (PSU/VRM loss only, not full facility PUE) |
+| `uptime_pct` | Availability — DC industry usually expresses this in "nines" (99.9%, 99.99%) or Uptime Institute Tier ratings; we report a raw percentage |
+| PUE | Power Usage Effectiveness (Total Facility Power ÷ IT Power) — the standard DC efficiency KPI; `delivery_efficiency_pct` covers the rack's own PSU/VRM loss but not the full picture, since cooling equipment's own electrical draw and upstream UPS/transformer loss still aren't tracked |
 
 ## Development
 

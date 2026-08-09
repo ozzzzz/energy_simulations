@@ -7,7 +7,7 @@ from app.server import create_app
 
 @pytest.fixture
 def config():
-    return Config(log_level="DEBUG", debug=True, allowed_origins="*", telegram_token="test-token")
+    return Config(log_level="DEBUG", debug=True, allowed_origins="*")
 
 
 @pytest.fixture

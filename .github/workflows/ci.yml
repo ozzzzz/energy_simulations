@@ -26,8 +26,6 @@ jobs:
           version: "latest"
       - run: uv sync --frozen
       - run: uv run pytest --cov=app --cov-report=term-missing
-    env:
-      APP_TELEGRAM_TOKEN: test-token
 
   docker:
     runs-on: ubuntu-latest
