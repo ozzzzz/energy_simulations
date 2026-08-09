@@ -30,10 +30,10 @@ _SCENARIOS: dict[str, ScenarioConfig] = {
         name="cooling_failure",
         profile="training",
         seed=4,
-        # a CDU/chiller incident on day 3, cutting cooling to 15% of normal for 2 hours
+        # a CDU/chiller incident on day 3, cutting cooling to 15% of normal for 1.5 days
         cooling=CoolingInput(
             failure_start_s=3 * DAY_SECONDS,
-            failure_end_s=3 * DAY_SECONDS + 2 * 3600.0,
+            failure_end_s=3 * DAY_SECONDS + 1.5 * DAY_SECONDS,
             failure_severity=0.85,
         ),
     ),

@@ -17,7 +17,7 @@ Scenarios (`--scenario`):
 | `inference` | user-driven traffic: short request spikes, follows the day/night cycle |
 | `training` | scheduled batch jobs: sustained near-peak draw with rare dips (checkpoint/sync), runs flat around the clock |
 | `mixed` | rack 1 trains, racks 2-4 serve inference, all at once |
-| `cooling_failure` | training load + a scripted CDU/chiller incident on day 3 (cooling cut to 15% for 2h) — exercises throttle/shutdown/recovery |
+| `cooling_failure` | training load + a scripted CDU/chiller incident on day 3 (cooling cut to 15% for 1.5 days) — exercises throttle/shutdown/recovery |
 
 ```bash
 uv sync
@@ -35,18 +35,14 @@ uv run app sim0-dashboard --scenario cooling_failure
 
 Add `--duration <seconds>` / `--dt <seconds>` to override the default week / 1-minute tick.
 
-There's also an energy-flow dashboard (`sim0-dashboard-io`): a Sankey diagram tracing where every kW of
-draw actually goes — demand splits into delivered vs curtailed, delivered draw splits into useful IT compute
-vs PSU/VRM loss, and all of it ends up as heat split between liquid and air — plus a per-rack drill-down
-(demand vs draw, temperature). A dropdown compares the whole run against just the cooling-incident window.
+The dashboard is a Sankey diagram tracing where every kW of draw actually goes — demand splits into
+delivered vs curtailed, delivered draw splits into useful IT compute vs PSU/VRM loss, and all of it ends up
+as heat split between liquid and air — plus a cooling-by-channel chart and a per-rack drill-down (demand vs
+draw, temperature). A dropdown compares the whole run against just the cooling-incident window.
 
 Note: "power available" (electricity the rack can draw — an energy *input*) and "cooling available" (heat
 the site can remove — a capacity for an *output*) are different physical quantities, not two flavors of the
 same thing, even though both happen to be measured in kW.
-
-```bash
-uv run app sim0-dashboard-io --scenario cooling_failure
-```
 
 ### Terminology
 

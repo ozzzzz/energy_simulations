@@ -68,25 +68,8 @@ def sim0_dashboard(
     host: str = typer.Option("127.0.0.1", help="Bind host"),
     port: int = typer.Option(8050, help="Bind port"),
 ) -> None:
-    """Run a sim0 scenario and serve a Dash viewer for it."""
+    """Run a sim0 scenario and serve the energy-flow Dash viewer for it."""
     from app.simulations.sim0.dashboard import build_app
-    from app.simulations.sim0.engine import run_scenario
-
-    df, kpis = run_scenario(scenario, duration_s=duration, dt=dt)
-    app = build_app(df, kpis, scenario)
-    app.run(host=host, port=port, debug=False)
-
-
-@cli.command("sim0-dashboard-io")
-def sim0_dashboard_io(
-    scenario: str = typer.Option("inference", help="Scenario: inference/training/mixed/cooling_failure"),
-    duration: float = typer.Option(604800.0, help="Simulated duration, seconds (default: 1 week)"),
-    dt: float = typer.Option(60.0, help="Tick size, seconds"),
-    host: str = typer.Option("127.0.0.1", help="Bind host"),
-    port: int = typer.Option(8050, help="Bind port"),
-) -> None:
-    """Run a sim0 scenario and serve the input/output-focused Dash viewer for it."""
-    from app.simulations.sim0.dashboard_io import build_app
     from app.simulations.sim0.engine import run_scenario
 
     df, kpis = run_scenario(scenario, duration_s=duration, dt=dt)
