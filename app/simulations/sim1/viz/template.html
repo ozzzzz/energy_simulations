@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sim1 — data-centre energy flow</title>
+<style>/*__SIM_CSS__*/</style>
+</head>
+<body>
+<header class="top">
+  <div class="titles">
+    <h1 id="scenario-name">sim1</h1>
+    <p id="scenario-description">No data loaded. Open a file produced by <code>app sim1-run</code>.</p>
+  </div>
+  <div class="kpis" id="kpi-tiles"></div>
+</header>
+
+<section class="stage">
+  <div class="stage-head">
+    <h2>Energy and cooling flow</h2>
+    <div class="readouts">
+      <span class="readout" id="readout-clock">--:--:--</span>
+      <span class="readout" id="readout-balance">in − out = 0.0 kW</span>
+    </div>
+  </div>
+  <div class="diagram-wrap">
+    <svg id="diagram" viewBox="0 0 1240 620" preserveAspectRatio="xMidYMid meet" role="img"
+         aria-label="Flow diagram from the utility feeds through the 2N electrical chain to the racks and the cooling loop"></svg>
+  </div>
+  <p class="note" id="policy-note">
+    Cooling outranks IT when power runs short: in a deep brownout the pumps keep turning while IT falls to zero.
+    Losing the chillers cooks the hall; losing GPU-seconds does not.
+  </p>
+</section>
+
+<section class="controls">
+  <button id="play" class="button" type="button" aria-label="Play or pause">▶</button>
+  <div class="speeds" id="speeds" role="group" aria-label="Playback speed"></div>
+  <input id="scrub" class="scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Time">
+  <span class="tick-count" id="tick-count"></span>
+</section>
+
+<section class="timeline">
+  <h2>Timeline</h2>
+  <div class="markers" id="markers"></div>
+  <div class="ribbons" id="ribbons"></div>
+</section>
+
+<section class="charts" id="charts"></section>
+
+<footer class="foot">
+  <p id="model-note"></p>
+</footer>
+
+<script id="sim-data" type="application/json">/*__SIM_DATA__*/</script>
+<script>/*__SIM_JS__*/</script>
+</body>
+</html>

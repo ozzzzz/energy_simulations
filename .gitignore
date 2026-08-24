@@ -11,3 +11,6 @@ build/
 .coverage
 htmlcov/
 docs/openapi.json
+
+# sim1 run artifacts (HTML/CSV) — regenerate with `app sim1-run`
+out/

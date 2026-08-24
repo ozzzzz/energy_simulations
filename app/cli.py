@@ -1,4 +1,12 @@
+import json
+import webbrowser
+from pathlib import Path
+
 import typer
+
+from app.simulations.sim1.engine import run_scenario as sim1_run_scenario
+from app.simulations.sim1.report import write_artifacts, write_comparison
+from app.simulations.sim1.scenarios import design_margins, get_scenario, scenario_names
 
 cli = typer.Typer(pretty_exceptions_enable=False)
 
@@ -75,6 +83,89 @@ def sim0_dashboard(
     df, kpis = run_scenario(scenario, duration_s=duration, dt=dt)
     app = build_app(df, kpis, scenario)
     app.run(host=host, port=port, debug=False)
+
+
+@cli.command("sim1-list")
+def sim1_list() -> None:
+    """List sim1 scenarios with their default timescale."""
+    typer.echo(f"{'scenario':22s} {'duration':>10s} {'dt':>7s} {'dt fine':>8s}  what it shows")
+    for name in scenario_names():
+        scenario = get_scenario(name)
+        hours = scenario.default_duration_s / 3600.0
+        typer.echo(
+            f"{name:22s} {hours:9.1f}h {scenario.default_dt_s:6.0f}s "
+            f"{scenario.default_dt_fine_s:7.1f}s  {scenario.description}"
+        )
+    typer.echo("")
+    typer.echo("Reference build:")
+    for key, value in design_margins(get_scenario("normal").site).items():
+        typer.echo(f"  {key:26s} {value:10.2f}")
+
+
+@cli.command("sim1-run")
+def sim1_run(
+    scenario: str = typer.Option("normal", help="Scenario name; see sim1-list"),
+    duration: float = typer.Option(None, help="Simulated seconds (default: the scenario's own)"),
+    dt: float = typer.Option(None, help="Coarse tick, seconds"),
+    dt_fine: float = typer.Option(None, help="Tick inside event windows; 0 disables refinement"),
+    seed: int = typer.Option(None, help="Override the scenario seed"),
+    out: str = typer.Option("out/sim1", help="Output root; writes <out>/<scenario>/"),
+    viz: bool = typer.Option(True, help="Write the self-contained index.html"),
+    analysis: bool = typer.Option(True, help="Write the Plotly analysis.html"),
+    csv: bool = typer.Option(True, help="Write facility/racks/events CSVs"),
+    viz_points: int = typer.Option(2500, help="Target points in the visualization payload"),
+    open_browser: bool = typer.Option(False, "--open/--no-open", help="Open the visualization when done"),
+) -> None:
+    """Run a sim1 scenario, print its KPIs and write the artifacts."""
+    config = get_scenario(scenario)
+    result = sim1_run_scenario(scenario, duration_s=duration, dt=dt, dt_fine=dt_fine, seed=seed)
+    artifacts = write_artifacts(result, config, out, viz=viz, analysis=analysis, csv=csv, viz_points=viz_points)
+
+    typer.echo(json.dumps(result.kpis, indent=2, allow_nan=False))
+    for path in artifacts.written():
+        typer.echo(f"wrote {path} ({path.stat().st_size / 1024:.0f} KB)")
+    if open_browser and artifacts.viz:
+        webbrowser.open(artifacts.viz.resolve().as_uri())
+
+
+@cli.command("sim1-viz")
+def sim1_viz(
+    scenario: str = typer.Option("normal", help="Scenario name; see sim1-list"),
+    duration: float = typer.Option(None, help="Simulated seconds (default: the scenario's own)"),
+    dt: float = typer.Option(None, help="Coarse tick, seconds"),
+    dt_fine: float = typer.Option(None, help="Tick inside event windows"),
+    seed: int = typer.Option(None, help="Override the scenario seed"),
+    out: str = typer.Option("out/sim1", help="Output root; writes <out>/<scenario>/index.html"),
+    viz_points: int = typer.Option(2500, help="Target points in the visualization payload"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the visualization when done"),
+) -> None:
+    """Build only the single-file visualization — fast iteration on the page."""
+    config = get_scenario(scenario)
+    result = sim1_run_scenario(scenario, duration_s=duration, dt=dt, dt_fine=dt_fine, seed=seed)
+    artifacts = write_artifacts(result, config, out, viz=True, analysis=False, csv=False, viz_points=viz_points)
+    page = artifacts.viz
+    if page is None:  # pragma: no cover - viz=True above guarantees a path
+        raise RuntimeError("visualization was not written")
+    typer.echo(f"wrote {page} ({page.stat().st_size / 1024:.0f} KB)")
+    if open_browser:
+        webbrowser.open(page.resolve().as_uri())
+
+
+@cli.command("sim1-compare")
+def sim1_compare(
+    scenarios: str = typer.Option(",".join(scenario_names()), help="Comma-separated scenario names"),
+    duration: float = typer.Option(None, help="Override every scenario's duration, seconds"),
+    out: str = typer.Option("out/sim1/compare", help="Output directory"),
+) -> None:
+    """Run several scenarios and compare their headline KPIs."""
+    names = [name.strip() for name in scenarios.split(",") if name.strip()]
+    results = []
+    for name in names:
+        typer.echo(f"running {name}...")
+        results.append(sim1_run_scenario(name, duration_s=duration))
+    html_path, csv_path = write_comparison(results, out)
+    typer.echo(Path(csv_path).read_text())
+    typer.echo(f"wrote {html_path}")
 
 
 if __name__ == "__main__":
