@@ -81,6 +81,8 @@ section {
   padding: 2px 8px;
 }
 .readout.bad { color: var(--bad); border-color: var(--bad); }
+.readout.warn { color: var(--warn); border-color: var(--warn); }
+#readout-incident { font-weight: 600; }
 
 .diagram-wrap { overflow-x: auto; }
 #diagram { display: block; width: 100%; min-width: 900px; height: auto; }
@@ -91,6 +93,9 @@ section {
 .node.gen rect { stroke: var(--gen); }
 .node.cool rect { stroke: var(--mech); }
 .node.rack rect { stroke: var(--it); }
+.node.user rect { stroke: var(--it); stroke-dasharray: none; }
+.node.drop rect { stroke: var(--bad); }
+.node.drop .title { fill: var(--bad); }
 .node.down rect { stroke: var(--bad); stroke-dasharray: 4 3; }
 .node.alarm rect { stroke: var(--warn); }
 .node.idle rect { stroke: var(--dead); }
@@ -155,6 +160,8 @@ section {
   cursor: pointer;
 }
 .marker:hover { color: var(--ink); border-color: var(--ink-dim); }
+.marker.focused { color: var(--warn); border-color: var(--warn); }
+.marker .at { color: var(--ink-faint); margin-right: 5px; font-variant-numeric: tabular-nums; }
 
 .ribbons { display: grid; gap: 3px; }
 .ribbon { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; }

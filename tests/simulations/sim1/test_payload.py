@@ -5,7 +5,7 @@ import json
 import pytest
 
 from app.simulations.sim1.engine import run_scenario
-from app.simulations.sim1.resample import plan_buckets
+from app.simulations.sim1.resample import bucket_times, plan_buckets
 from app.simulations.sim1.scenarios import get_scenario
 from app.simulations.sim1.telemetry import FACILITY_SERIES
 from app.simulations.sim1.viz.payload import build_payload, dumps
@@ -14,7 +14,7 @@ from app.simulations.sim1.viz.payload import build_payload, dumps
 @pytest.fixture(scope="module")
 def run():
     name = "grid_outage_gen_ok"
-    result = run_scenario(name, duration_s=3600.0)
+    result = run_scenario(name)
     return result, get_scenario(name), build_payload(result, get_scenario(name), target_points=400)
 
 
@@ -50,16 +50,19 @@ def test_dequantized_values_match_the_frame_within_their_own_step(run) -> None:
 
 
 def test_rate_series_preserve_energy_through_downsampling(run) -> None:
-    result, _, payload = run
+    """dt-weighted bucket means are the only aggregation that keeps the integral."""
+    result, scenario, payload = run
     df = result.facility
     exact_kwh = float((df["it_drawn_kw"] * df["dt"]).sum() / 3600.0)
 
+    # The bucket's own span, not the gap to the next bucket start: with event
+    # refinement the buckets are wildly uneven, and the last one can be huge.
+    windows = tuple((event.t - 60.0, event.t + 600.0) for event in scenario.events)
+    buckets = plan_buckets(df["t"].tolist(), df["dt"].tolist(), 400, windows, window_step_s=2.0)
+    _, spans = bucket_times(df, buckets)
+
     entry = payload["series"]["it_drawn_kw"]
-    times = payload["t"]
-    total = 0.0
-    for index, value in enumerate(entry["v"]):
-        span = (times[index + 1] - times[index]) if index + 1 < len(times) else df["dt"].iloc[-1]
-        total += (value or 0) * entry["scale"] * span / 3600.0
+    total = sum((value or 0) * entry["scale"] * span / 3600.0 for value, span in zip(entry["v"], spans, strict=True))
 
     assert total == pytest.approx(exact_kwh, rel=0.01)
 
@@ -96,7 +99,7 @@ def test_events_survive_at_full_resolution(run) -> None:
     result, _, payload = run
     assert len(payload["events"]) == len(result.events)
     scheduled = [event for event in payload["events"] if event["kind"] == "scheduled"]
-    assert {event["t"] for event in scheduled} == {1800.0}
+    assert {event["t"] for event in scheduled} == {600.0, 1500.0}
 
 
 def test_a_week_long_run_stays_under_a_megabyte() -> None:

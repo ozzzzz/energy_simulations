@@ -23,23 +23,25 @@ Scenarios (`--scenario`):
 ```bash
 uv sync
 
-uv run app sim0-run --scenario inference --output /tmp/inference.csv
-uv run app sim0-run --scenario training --output /tmp/training.csv
-uv run app sim0-run --scenario mixed --output /tmp/mixed.csv
-uv run app sim0-run --scenario cooling_failure --output /tmp/cooling_failure.csv
+# KPIs, a CSV of the time series, and a static HTML report with the graphs
+uv run app sim0-run --scenario inference --output out/sim0/inference.csv --html out/sim0/inference.html
 
-uv run app sim0-dashboard --scenario inference
-uv run app sim0-dashboard --scenario training
-uv run app sim0-dashboard --scenario mixed
+# or the same graphs live, in a Dash app on :8050
 uv run app sim0-dashboard --scenario cooling_failure
 ```
 
-Add `--duration <seconds>` / `--dt <seconds>` to override the default week / 1-minute tick.
+`just sim0-all` does all four scenarios into `out/sim0/`. Add `--duration <seconds>` / `--dt <seconds>`
+to override the default week / 1-minute tick.
 
-The dashboard is a Sankey diagram tracing where every kW of draw actually goes — demand splits into
-delivered vs curtailed, delivered draw splits into useful IT compute vs PSU/VRM loss, and all of it ends up
-as heat split between liquid and air — plus a cooling-by-channel chart and a per-rack drill-down (demand vs
-draw, temperature). A dropdown compares the whole run against just the cooling-incident window.
+Both viewers show the same four figures. The centrepiece is a Sankey tracing where every kW of draw
+actually goes — demand splits into delivered vs curtailed, delivered draw splits into useful IT compute
+vs PSU/VRM loss, and all of it ends up as heat split between liquid and air — plus a cooling-by-channel
+chart and a per-rack drill-down (demand vs draw, temperature). Where the scenario has a cooling
+incident, both compare the whole run against the incident window and against the run outside it: the
+dashboard with a dropdown, the report with one section each.
+
+The figures live in [`figures.py`](app/simulations/sim0/figures.py) and are shared, so the static file
+cannot drift from the live one — and writing it does not import Dash.
 
 Note: "power available" (electricity the rack can draw — an energy *input*) and "cooling available" (heat
 the site can remove — a capacity for an *output*) are different physical quantities, not two flavors of the
@@ -57,6 +59,20 @@ facility load is IT + cooling + conversion losses and **PUE is computed rather t
 chiller trip therefore moves the electrical picture in both directions at once — its own ~80 kW of
 draw disappears while its heat removal collapses.
 
+And the load is not a curve someone drew — it comes from **users**:
+
+```
+users arrive → requests become tokens of work → the scheduler asks the racks for the power
+needed to serve them → the racks draw it (or cannot) → served throughput follows from actual
+draw → whatever was not served queues → past the latency budget, requests are dropped
+```
+
+So a failure is legible in the terms that matter. A chiller trip is not just "the loop reached
+87 °C": it throttles the racks, which cuts serving capacity, which grows the queue, which drops
+**23.7 % of user requests**. A clean grid outage with a working genset drops none. Racks are either
+**interactive** (power follows arriving traffic; lost capacity costs requests) or **batch** (training
+work; lost capacity is deferred, not failed) — the default build runs two of each.
+
 sim-1 shares no code with sim-0. `Rack` and the workload model are deliberately re-derived, not copied.
 
 **Reference build** (`app sim1-list` prints this from the config, so it cannot drift):
@@ -70,27 +86,46 @@ sim-1 shares no code with sim-0. `Rack` and the workload model are deliberately 
 | Generator | one 800 kW unit, 30 s start, 4000 L tank |
 | One side at site nominal | **88 % of UPS nameplate** — survivable |
 | One side at site peak | **100.5 %** — an overload |
+| User traffic | 76 req/s per interactive rack at the daily peak, 420 tokens each, 8 s latency budget |
+| Rack throughput | 40 000 tokens/s at peak power, so nominal power ≈ **85 % of the throughput ceiling** |
 
 That last pair is the point: the build sits right at the edge, so losing a side is survivable at
 nominal and an overload at peak. Each side's battery holds about five minutes at full *site* load, so
 healthy 2N gives ten minutes of autonomy and a lost side gives five.
 
+The same holds on the compute side, and for the same reason: peak power and peak throughput are the
+same point, so a rack at its nominal draw is already at ~85 % of what it can serve. Sizing traffic to
+land near nominal at the daily peak leaves roughly 20 % of throughput in reserve — which the
+minute-to-minute burstiness eats into before any surge arrives.
+
 Scenarios (`--scenario`):
 
-| Scenario | What it shows | Default run |
-|---|---|---|
-| `normal` | steady state, 50/50 split, PUE ≈ 1.27, reserves untouched | 7 d @ 60 s |
-| `grid_outage_gen_ok` | both feeds drop → UPSes ride it on battery → 30 s crank → ATS transfers → diesel burns → batteries recharge | 2 h @ 10 s |
-| `grid_outage_gen_fail` | three failed starts → latched failure → batteries to cutoff → the site goes dark | 40 min @ 5 s |
-| `load_spike` | every rack pinned at peak: cooling, not power, is the tighter margin (~42 kW of chiller headroom left) | 8 h @ 30 s |
-| `cooling_failure` | chiller trips → loop climbs ~1.5 °C/min → rack ΔT collapses → throttle → shutdown → restored after 4 h | 8 h @ 30 s |
-| `side_a_lost` | transformer A trips; UPS A quietly burns its battery down, then side B carries the site at 93 % | 4 h @ 10 s |
-| `side_a_lost_at_peak` | same at peak: UPS B crosses 100 %, its hold timer expires, it transfers to **bypass** — load survives, battery protection is gone | 4 h @ 10 s |
-| `undersized_cords` | 2N on paper only (cords rated for 60 % of peak): losing a side curtails IT to 76 % | 4 h @ 10 s |
+| Scenario | What it shows | Users hit | Incident at | Run |
+|---|---|---|---|---|
+| `normal` | steady state: traffic follows the day, 50/50 split, PUE ≈ 1.27, reserves untouched | none | — | 7 d @ 60 s |
+| `grid_outage_gen_ok` | both feeds drop → UPSes ride it on battery → 30 s crank → ATS transfers → diesel burns → batteries recharge | **none** | 10 min | 1 h @ 10 s |
+| `grid_outage_gen_fail` | three failed starts → latched failure → batteries to cutoff → the site goes dark | 56.2 % dropped | 5 min | 35 min @ 5 s |
+| `user_surge` | all four racks serve users, traffic to 1.5×. Power and cooling hold; the racks hit their **throughput** ceiling, the queue fills to the 8 s budget and requests are abandoned | 9.3 % dropped | 15 min | 2 h @ 15 s |
+| `load_spike` | the power-and-cooling question with users out of the way: four batch racks pinned at peak. Power fine, cooling is the tighter margin (~43 kW of chiller headroom) | n/a | 15 min | 2 h @ 15 s |
+| `cooling_failure` | chiller trips → loop climbs ~1.5 °C/min → rack ΔT collapses → throttle → shutdown → restored 90 min later | 25.9 % dropped | 15 min | 3 h @ 30 s |
+| `side_a_lost` | transformer A trips; UPS A quietly burns its battery down, then side B carries the site at 92 % | none | 15 min | 90 min @ 15 s |
+| `side_a_lost_at_peak` | a purely electrical test — all batch at peak. UPS B crosses 100 %, its hold timer expires, it transfers to **bypass**: load survives, battery protection is gone | n/a | 10 min | 1 h @ 10 s |
+| `undersized_cords` | 2N on paper only (cords rated for 60 % of peak): losing a side curtails IT, and the curtailment lands on requests | 20.9 % dropped | 15 min | 90 min @ 15 s |
+
+**Every incident happens 5–15 minutes into the run, and no run is longer than three hours.** The trick
+is that a scenario's clock need not start at midnight: `start_hour` sets the wall-clock time `t=0`
+corresponds to, and the incident scenarios start at **13:00** — so a failure fifteen minutes in lands
+at 13:15, right on the daily traffic peak. A transformer trip at 03:00 tells you nothing about whether
+one side can carry the site; waiting thirteen hours to reach 14:00 tells you nothing either. The offset
+applies to traffic, rack profiles and the electricity tariff together, so they cannot disagree about
+what time it is.
+
+Because the whole run now sits at representative load instead of averaging a quiet night into every
+KPI, the drop percentages below are higher than the longer runs used to report.
 
 ```bash
 uv run app sim1-list                                          # scenarios + design margins
-uv run app sim1-run --scenario grid_outage_gen_ok --open       # KPIs + all artifacts
+uv run app sim1-run --scenario cooling_failure --open           # KPIs + all artifacts
 uv run app sim1-viz --scenario cooling_failure                 # just the HTML page, fast
 uv run app sim1-compare                                        # every scenario, side by side
 ```
@@ -102,19 +137,40 @@ Add `--duration` / `--dt` / `--dt-fine` / `--seed` to override the scenario's ow
 
 #### How one tick resolves
 
-Four passes, each a single sweep — not one-tick lag everywhere (at dt=60 the lag *is* a minute, and a
-30 s generator start could not resolve), and not fixed-point iteration (which adds convergence failure
-as a failure mode indistinguishable from a modeled one):
+Each tick answers one question — **how many kW does each rack actually get?** — and
+that depends on two numbers neither of which is known when the tick starts: what the
+equipment can supply *right now* (a transformer may have just tripped) and what the
+load wants *right now* (a rack may be throttling). They also depend on each other.
 
-1. **probe** — capacity flows *down* from the utility. Non-mutating.
-2. **request** — demand flows *up* from the racks. Non-mutating.
-3. **deliver** — power flows *down*; the only pass that integrates state.
-4. **consume** — loads draw, physics integrates.
+So the tick works through them in a fixed order, four single sweeps, no iteration and
+no going back:
 
-The probe pass is what makes 2N work: a side that died on this very tick reports zero capacity, so it
-receives zero demand and fails over inside the same tick — with no failover branch anywhere in the code.
-Load is split in proportion to probed capacity, which makes 50/50 sharing and 0/100 failover the same
-formula evaluated at different points.
+1. **Ask the equipment what it could supply.** The question travels down each side —
+   utility, transformer, ATS, UPS, PDU — each applying its own limit. The tightest
+   link is the answer. Nothing is committed.
+2. **Work out what the load wants.** User traffic becomes tokens of work becomes a
+   power ask per rack; cooling asks too, since its pumps and compressors are
+   electrical load. Still nothing committed.
+3. **Hand out the power.** The only step that changes state — batteries, fuel,
+   timers, winding temperatures.
+4. **Consume it.** Racks draw, heat is integrated, throughput is read back off the
+   power actually drawn, the request queue ages.
+
+Asking the equipment *before* demand exists is what makes 2N work. A side that failed
+a millisecond ago answers "zero", so it is handed zero work, so the other side picks
+up everything — in the same tick, with no code anywhere that detects a failure and
+switches over. Load is divided in proportion to what each side can carry, and that one
+line covers both cases: two healthy sides split evenly because their capacities match,
+a dead side takes nothing because its capacity is zero.
+
+The alternatives were worse. Lagging everything by a tick (what sim-0 does) means at
+dt=60 the lag *is* a minute, so a grid loss is invisible to the UPS for a full minute
+and a 30 s generator start cannot resolve. Iterating to a fixed point buys precision a
+teaching model does not need and adds "failed to converge" as a failure you cannot
+tell apart from a modelled one.
+
+[docs/sim_1_plan.md §2.1](docs/sim_1_plan.md) walks a real tick end to end with the
+actual numbers.
 
 Only one quantity is lagged: the **coolant loop's stored heat**. The chiller sizes its demand from the
 loop temperature as of the previous tick, which is both physically true (real capacity control has tens
@@ -129,18 +185,30 @@ Two consequences worth knowing before reading a run:
   aggregate is therefore `Σ p·dt`; anything that counts rows is wrong.
 - **Cooling outranks IT.** In a deep brownout the pumps keep turning while IT falls to zero. Losing the
   chillers cooks the hall; losing GPU-seconds does not.
+- **A saturated queue reads as empty.** Once requests are past the latency budget they are abandoned,
+  not held, so the queue depth drops to zero at exactly the moment the drop rate is at its worst.
+  Latency pins at the budget in the same situation — the drop rate is the number to read there.
 
 #### The visualization
 
 `index.html` is one file — data embedded as JSON, hand-written vanilla JS and SVG, no CDN, no external
 asset of any kind. Open it by double-click, with the network off if you like.
 
-It shows an animated flow diagram of the whole chain (utility → transformer → ATS → UPS + battery →
-PDU → busbar → racks, plus generator and fuel tank, plus rack heat → CDU → loop → chiller → rejected,
-and the air branch through the room and CRAHs), with edge thickness and dash speed set by the actual
-kW on that edge and dead edges greyed out. A scrubber and 1× / 60× / 600× / 3600× playback move
-through the run; event markers jump to the moment they happened; state ribbons under the timeline make
-a failure narrative readable at a glance; and ten stacked charts share a cursor.
+It shows an animated flow diagram of the whole chain — **users → queue → racks** on the right, then
+utility → transformer → ATS → UPS + battery → PDU → busbar → racks on the left, plus generator and
+fuel tank, plus rack heat → CDU → loop → chiller → rejected, and the air branch through the room and
+CRAHs. Edge thickness and dash speed are set by the actual flow on that edge (kW on the power side,
+requests/s on the user side) and dead edges are greyed out. Each rack is labelled with which side of
+the workload it serves, and the USERS / QUEUE / DROPPED boxes carry offered rate, serving capacity,
+queue depth, wait against the budget, and the share being abandoned. A scrubber and 1× / 60× / 600× / 3600× playback move
+through the run; state ribbons under the timeline make a failure narrative readable at a glance; and
+fifteen stacked charts share a cursor.
+
+Time reads as **wall clock plus elapsed** (`13:15:00 · +15:00`), and a readout beside it counts down to
+the next incident and up from the last one — `T−15:00 → Chiller tripped at 13:15:00`, then
+`T+06:00 since Chiller tripped at 13:15:00`. Every scheduled incident is a dashed line on every chart
+and a clickable timeline marker labelled with its wall-clock time; the one the countdown is tracking is
+highlighted.
 
 A corner readout prints `in − out` every tick. It stays at zero because the model conserves energy —
 `max_balance_residual_kw` in the KPIs is the same check as a number, and `tests/simulations/sim1/test_facility.py`
@@ -151,6 +219,10 @@ with the rest derived in the browser, per-series integer quantization, and downs
 windows at fine resolution and ships companion max/min series wherever the peak is the point. Without
 that last rule a 60-second 105 % UPS overload would vanish into a five-minute bucket — which is exactly
 the finding `side_a_lost_at_peak` exists to show.
+
+The first four of the fourteen charts are the demand side: offered vs served vs dropped requests
+against serving capacity, compute utilisation against 100 %, queue depth, and queue latency against
+the budget. `analysis.html` leads with the same two rows.
 
 ### Terminology
 
@@ -184,25 +256,28 @@ sim-1 adds:
 | `ua_kw_per_c` | Thermal conductance (UA) between a body and its cooling sink, in kW per °C of ΔT |
 | `served_pct` | IT energy delivered ÷ IT energy the workload asked for — catches graceful degradation that binary uptime misses |
 | `autonomy_s` | Seconds a battery string could carry its current load, reported every tick whether discharging or not |
+| rps | Requests per second offered by users — the exogenous driver of everything else |
+| tokens/s | Unit of served work. A request is `tokens_per_request` of it; a rack's throughput is linear in draw above its idle floor |
+| SLO / latency budget | `slo_latency_s` — how long a user waits before abandoning. Requests still queued past it are dropped, which is what turns a capacity shortfall into a number rather than ever-growing latency |
+| `served_pct` vs `request_drop_pct` | Energy served vs requests served. They differ: curtailment can cost kWh while the queue absorbs it, dropping nothing |
+| Interactive / batch | Whether a rack's demand comes from user traffic or from its own schedule. Losing capacity fails requests on the first and defers work on the second |
 
 ## Development
 
-There is a [justfile](justfile) wrapping the common commands — `just` on its own lists them:
+There is a [justfile](justfile) with the handful of commands worth shortcutting — `just` on its own
+lists them:
 
 ```bash
-just install                       # uv sync + pre-commit install
-just scenarios                     # sim1 scenarios and design margins
-just sim1 cooling_failure          # run one scenario, write artifacts
-just viz side_a_lost_at_peak       # run one and open the visualization
-just sim1-all                      # every scenario, all artifacts
-just compare                       # every scenario, headline KPIs side by side
-just check                         # what CI runs: lint + tests with coverage
-just clean                         # delete out/
+just install        # uv sync + pre-commit install
+just test           # pytest; extra arguments are forwarded
+just sim1-all       # every sim-1 scenario at its own timescale, all artifacts
+just sim0-all       # every sim-0 scenario, graphs and CSVs to out/sim0/
 ```
 
-Every recipe forwards extra flags, so `just sim1 normal --duration 86400 --no-analysis` works.
+Anything more specific goes through the CLI directly — see the per-simulation sections above, or
+`uv run app --help`.
 
-Or install deps and pre-commit hooks directly:
+Or install deps and pre-commit hooks by hand:
 
 ```bash
 uv sync

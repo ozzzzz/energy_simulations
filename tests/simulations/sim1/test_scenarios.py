@@ -85,9 +85,9 @@ def test_a_chiller_trip_throttles_then_shuts_down_and_frees_its_own_power() -> N
     assert float(k["loop_peak_c"]) > 60.0
     assert float(k["uptime_pct"]) < 100.0
 
-    fault_t = 3600.0
-    before = df[(df["t"] > fault_t - 600.0) & (df["t"] < fault_t)]
-    during = df[(df["t"] > fault_t + 600.0) & (df["t"] < fault_t + 3000.0)]
+    fault_t = 15 * 60.0
+    before = df[(df["t"] > fault_t - 300.0) & (df["t"] < fault_t)]
+    during = df[(df["t"] > fault_t + 300.0) & (df["t"] < fault_t + 2700.0)]
 
     # The loop climbs monotonically while the chiller is out...
     loop = during["cool_loop_supply_c"].tolist()
@@ -129,11 +129,14 @@ def test_undersized_cords_turn_a_side_loss_into_curtailment() -> None:
     k = result.kpis
 
     assert k["uptime_pct"] == 100.0
-    assert float(k["served_pct"]) < 90.0
+    assert float(k["served_pct"]) < 95.0
     assert float(k["unserved_energy_kwh"]) > 100.0
     assert float(k["unserved_cost_usd"]) > 0.0
     # The survivor is nowhere near its own limit — the cords are the constraint.
     assert float(k["max_ups_load_pct_b"]) < 70.0
+    # And the curtailment lands on users, not just on kilowatts.
+    assert float(k["request_drop_pct"]) > 1.0
+    assert float(k["p95_queue_latency_s"]) > 0.0
 
 
 def test_every_scenario_conserves_energy_and_produces_all_three_frames() -> None:

@@ -20,6 +20,10 @@ from app.simulations.sim1.facility import Facility
 from app.simulations.sim1.units import SECONDS_PER_HOUR
 
 
+def _round_or_none(value: float | None, digits: int) -> float | None:
+    return None if value is None else round(value, digits)
+
+
 def scalar(value: Any) -> float:
     """Narrow a pandas reduction to a plain float.
 
@@ -44,6 +48,24 @@ def seconds_where(df: pd.DataFrame, mask: Any) -> float:
 
 def count_transitions(states: Any, target: str) -> int:
     return int(((states == target) & (states.shift(1) != target)).sum())
+
+
+def weighted_quantile(values: Any, weights: Any, q: float) -> float | None:
+    """Quantile over *time*, not over rows.
+
+    With a non-uniform timebase a plain ``quantile`` weights a one-second tick as
+    heavily as a sixty-second one, which on a refined run means the few seconds
+    around an event dominate the whole distribution.
+    """
+    frame = pd.DataFrame({"v": values, "w": weights}).dropna().sort_values("v")
+    if frame.empty:
+        return None
+    total = scalar(frame["w"].sum())
+    if total <= 0.0:
+        return scalar(frame["v"].iloc[-1])
+    cumulative = frame["w"].cumsum() / total
+    hit = frame.loc[cumulative >= q, "v"]
+    return scalar(hit.iloc[0]) if not hit.empty else scalar(frame["v"].iloc[-1])
 
 
 def _overload_seconds(facility: Facility) -> float:
@@ -75,6 +97,10 @@ def summarize(facility_df: pd.DataFrame, racks_df: pd.DataFrame, facility: Facil
             states = group.sort_values("t")["state"]
             throttle_events += count_transitions(states, "throttling")
             shutdown_events += count_transitions(states, "emergency_shutdown")
+
+    # Undefined-latency ticks (nothing served at all) are excluded rather than
+    # counted as zero; the drop count is what records those.
+    latency = facility_df["user_queue_latency_s"].astype(float)
 
     on_battery = (facility_df["a_batt_out_kw"] > 1e-6) | (facility_df["b_batt_out_kw"] > 1e-6)
     autonomy = pd.concat([facility_df["a_autonomy_s"], facility_df["b_autonomy_s"]]).astype(float).dropna()
@@ -118,6 +144,19 @@ def summarize(facility_df: pd.DataFrame, racks_df: pd.DataFrame, facility: Facil
         "ups_b_final_state": facility.side_b.ups.state.value,
         "overload_seconds": round(_overload_seconds(facility), 3),
         "side_failover_events": float(facility.side_a.ats.transfers + facility.side_b.ats.transfers),
+        # --- what users actually experienced --------------------------------
+        "requests_offered": round(facility.user_load.requests_offered, 1),
+        "requests_served": round(facility.user_load.requests_served, 1),
+        "requests_dropped": round(facility.user_load.requests_dropped, 1),
+        "request_drop_pct": round(facility.user_load.drop_pct, 3),
+        "slo_compliance_pct": round(facility.user_load.slo_compliance_pct, 3),
+        "peak_queue_requests": round(facility.user_load.peak_queue_requests, 1),
+        "peak_queue_latency_s": round(facility.user_load.peak_latency_s, 2),
+        "p50_queue_latency_s": _round_or_none(weighted_quantile(latency, facility_df["dt"], 0.50), 2),
+        "p95_queue_latency_s": _round_or_none(weighted_quantile(latency, facility_df["dt"], 0.95), 2),
+        "peak_offered_rps": round(scalar(facility_df["user_offered_rps"].max()), 2),
+        "peak_utilisation_pct": round(scalar(facility_df["user_utilisation_pct"].max()), 2),
+        "batch_work_owed_kwh": round(facility.user_load.batch_backlog_kwh, 3),
         "rack_peak_temp_c": round(scalar(facility_df["rack_temp_max_c"].max()), 2),
         "chiller_min_headroom_kw": round(scalar(headroom.min()), 2),
         "loop_peak_c": round(facility.cooling.loop.peak_supply_c, 2),

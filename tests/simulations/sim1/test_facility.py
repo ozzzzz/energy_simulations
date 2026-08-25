@@ -101,21 +101,21 @@ def test_the_generator_is_only_summoned_when_both_sides_lose_their_mains() -> No
 
 
 def test_a_run_lands_ticks_exactly_on_its_scheduled_events() -> None:
-    result = run_scenario("grid_outage_gen_ok", duration_s=4000.0)
+    result = run_scenario("grid_outage_gen_ok")
     times = set(result.facility["t"])
-    for event_t in (1800.0, 3600.0):
+    for event_t in (600.0, 1500.0):
         assert event_t in times
 
     fired = result.events[result.events["kind"] == "scheduled"]
-    assert set(fired["t"]) == {1800.0, 3600.0}
+    assert set(fired["t"]) == {600.0, 1500.0}
 
 
 def test_dt_is_refined_around_events_and_coarse_elsewhere() -> None:
-    result = run_scenario("grid_outage_gen_ok", duration_s=7200.0, dt=10.0, dt_fine=1.0)
+    result = run_scenario("grid_outage_gen_ok", duration_s=3600.0, dt=10.0, dt_fine=1.0)
     df = result.facility
 
-    near_event = df[(df["t"] >= 1800.0) & (df["t"] < 2000.0)]
-    far_from_event = df[(df["t"] > 5000.0) & (df["t"] < 6000.0)]
+    near_event = df[(df["t"] >= 600.0) & (df["t"] < 800.0)]
+    far_from_event = df[(df["t"] > 3000.0) & (df["t"] < 3500.0)]
 
     assert near_event["dt"].max() == 1.0
     assert far_from_event["dt"].min() == 10.0

@@ -57,6 +57,16 @@ def plan_buckets(
     protected_s = sum(float(dt[i]) for i in range(n) if protected(float(t[i])))
     total_s = sum(float(d) for d in dt)
     window_points = int(protected_s / window_step_s) if window_step_s > 0.0 else 0
+
+    # The windows must not eat the whole budget. Without this, a small
+    # `--viz-points` against long settle windows leaves `coarse_budget == 1` and
+    # every quiet stretch collapses into a single bucket — the chart still draws,
+    # which is what makes it a trap rather than an error.
+    window_share = int(target_points * 0.6)
+    if window_points > window_share and window_share > 0:
+        window_step_s = protected_s / window_share
+        window_points = window_share
+
     coarse_budget = max(1, target_points - window_points)
     coarse_step = max(1e-9, (total_s - protected_s) / coarse_budget)
 

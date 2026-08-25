@@ -1,74 +1,32 @@
 # Run `just` with no arguments to list recipes.
 
-set positional-arguments
-
 default:
     @just --list
 
-# --- simulations -------------------------------------------------------------
-
-# List sim1 scenarios and the reference design margins.
-scenarios:
-    uv run app sim1-list
-
-# Run a sim1 scenario: KPIs to stdout, artifacts to out/sim1/<scenario>/.
-sim1 scenario="normal" *args:
-    uv run app sim1-run --scenario {{scenario}} {{args}}
-
-# Run a sim1 scenario and open the single-file visualization.
-viz scenario="grid_outage_gen_ok" *args:
-    uv run app sim1-viz --scenario {{scenario}} --open {{args}}
-
-# Run every sim1 scenario and compare their headline KPIs.
-compare *args:
-    uv run app sim1-compare {{args}}
-
-# Run every sim1 scenario in full and write all artifacts.
-sim1-all:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Names come from the scenario registry, not from parsing `sim1-list` output.
-    for scenario in $(uv run python -c 'from app.simulations.sim1.scenarios import scenario_names; print(*scenario_names())'); do
-        echo "==> $scenario"
-        uv run app sim1-run --scenario "$scenario" --no-open
-    done
-
-# Run a sim0 scenario (rack-centric model).
-sim0 scenario="inference" *args:
-    uv run app sim0-run --scenario {{scenario}} {{args}}
-
-# Serve the sim0 Dash viewer on :8050.
-sim0-dashboard scenario="inference" *args:
-    uv run app sim0-dashboard --scenario {{scenario}} {{args}}
-
-# Delete generated run artifacts.
-clean:
-    rm -rf out/
-
-# --- development -------------------------------------------------------------
-
+# Install dependencies and the pre-commit hooks.
 install:
     uv sync
     uv run pre-commit install
 
-test *args:
-    uv run pytest {{args}}
+# Run the test suite.
+test:
+    uv run pytest
 
-cov:
-    uv run pytest --cov=app --cov-report=term-missing
+# Every sim-1 scenario. KPIs, graphs and CSVs to out/sim1/<scenario>/.
+sim1-all:
+    uv run app sim1-run --scenario normal --no-open
+    uv run app sim1-run --scenario grid_outage_gen_ok --no-open
+    uv run app sim1-run --scenario grid_outage_gen_fail --no-open
+    uv run app sim1-run --scenario user_surge --no-open
+    uv run app sim1-run --scenario load_spike --no-open
+    uv run app sim1-run --scenario cooling_failure --no-open
+    uv run app sim1-run --scenario side_a_lost --no-open
+    uv run app sim1-run --scenario side_a_lost_at_peak --no-open
+    uv run app sim1-run --scenario undersized_cords --no-open
 
-fmt:
-    uv run ruff format app tests
-    uv run ruff check --fix app tests
-
-lint:
-    uv run pre-commit run --all-files
-
-types:
-    uvx pyright
-
-# Everything CI runs.
-check: lint cov
-
-serve *args:
-    uv run app serve {{args}}
+# Every sim-0 scenario. Graphs and CSVs to out/sim0/.
+sim0-all:
+    uv run app sim0-run --scenario inference --output out/sim0/inference.csv --html out/sim0/inference.html
+    uv run app sim0-run --scenario training --output out/sim0/training.csv --html out/sim0/training.html
+    uv run app sim0-run --scenario mixed --output out/sim0/mixed.csv --html out/sim0/mixed.html
+    uv run app sim0-run --scenario cooling_failure --output out/sim0/cooling_failure.csv --html out/sim0/cooling_failure.html

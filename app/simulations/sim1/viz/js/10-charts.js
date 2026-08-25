@@ -140,21 +140,29 @@ function drawFrame(ctx, spec, scale, w, h) {
     ctx.fillText(formatTick(value, spec.unit), PAD.left - 6, y);
   }
 
-  /* Event windows shaded first, so traces sit on top of them. */
-  ctx.fillStyle = 'rgba(255,176,32,0.07)';
+  /* Incident lines, drawn under the traces. A 7 %-alpha hairline was invisible,
+   * which defeated the point of marking them at all. */
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,176,32,0.55)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
   for (const event of SIM.events) {
     if (event.kind !== 'scheduled') continue;
-    const x = scale.x(event.t);
-    ctx.fillRect(x, PAD.top, 1.5, scale.plotH);
+    const x = Math.round(scale.x(event.t)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, PAD.top);
+    ctx.lineTo(x, PAD.top + scale.plotH);
+    ctx.stroke();
   }
+  ctx.restore();
 
   ctx.textAlign = 'left';
   ctx.fillStyle = PALETTE.faint;
   const first = SIM.t[0];
   const last = SIM.t[SIM.n - 1];
-  ctx.fillText(FMT.clock(first), PAD.left, h - 7);
+  ctx.fillText(FMT.wall(first), PAD.left, h - 7);
   ctx.textAlign = 'right';
-  ctx.fillText(FMT.clock(last), w - PAD.right, h - 7);
+  ctx.fillText(FMT.wall(last), w - PAD.right, h - 7);
 }
 
 function formatTick(value, unit) {

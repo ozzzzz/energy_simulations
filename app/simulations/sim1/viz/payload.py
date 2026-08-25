@@ -29,7 +29,7 @@ from app.simulations.sim1.resample import (
     bucket_times,
     plan_buckets,
 )
-from app.simulations.sim1.scenarios import ScenarioConfig, design_margins
+from app.simulations.sim1.scenarios import ScenarioConfig, build_facility, design_margins
 from app.simulations.sim1.telemetry import FACILITY_SERIES, RACK_SERIES, RIBBON_COLUMNS
 
 
@@ -89,6 +89,7 @@ def build_payload(result: RunResult, scenario: ScenarioConfig, target_points: in
 
     site = scenario.site
     reference = design_margins(site)
+    racks_meta = build_facility(scenario).racks
     reference_rack = result.racks.iloc[0] if not result.racks.empty else None
 
     return {
@@ -120,6 +121,13 @@ def build_payload(result: RunResult, scenario: ScenarioConfig, target_points: in
             "it_nominal_kw": site.it_nominal_kw,
             "it_peak_kw": site.it_peak_kw,
             "n_racks": site.n_racks,
+            "start_hour": site.start_hour,
+            "peak_rps": site.peak_rps,
+            "capacity_rps": reference["capacity_rps"],
+            "slo_latency_s": site.slo_latency_s,
+            "tokens_per_request": site.tokens_per_request,
+            "interactive_racks": int(site.interactive_racks),
+            "rack_segments": {rack.name: rack.segment.value for rack in racks_meta},
             "throttle_c": 85.0,
             "shutdown_c": 95.0,
             "facility_nominal_kw": round(reference["facility_nominal_kw"], 1),

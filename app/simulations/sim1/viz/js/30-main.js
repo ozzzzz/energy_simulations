@@ -8,6 +8,11 @@
   const SPEEDS = [1, 60, 600, 3600];
 
   const KPI_TILES = [
+    { key: 'requests_served', label: 'Requests served', fmt: (v) => FMT.compact(v) },
+    { key: 'request_drop_pct', label: 'Requests dropped', fmt: (v) => FMT.pct(v), bad: (v) => v > 0.1 },
+    { key: 'slo_compliance_pct', label: 'Within latency SLO', fmt: (v) => FMT.pct(v), bad: (v) => v < 99.9 },
+    { key: 'p95_queue_latency_s', label: 'p95 queue wait', fmt: (v) => `${FMT.num(v, 2)} s`, warn: (v) => v > 1 },
+    { key: 'peak_utilisation_pct', label: 'Peak compute load', fmt: (v) => FMT.pct(v), warn: (v) => v > 100 },
     { key: 'uptime_pct', label: 'Uptime', fmt: (v) => FMT.pct(v), bad: (v) => v < 99.9 },
     { key: 'served_pct', label: 'IT served', fmt: (v) => FMT.pct(v), bad: (v) => v < 99.9 },
     { key: 'pue_avg', label: 'PUE', fmt: (v) => FMT.num(v, 3) },
@@ -25,6 +30,52 @@
   ];
 
   const PANELS = [
+    {
+      title: 'User requests',
+      unit: 'rps',
+      yMin: 0,
+      series: [
+        { key: 'user_offered_rps', color: PALETTE.ink, label: 'Offered by users' },
+        { key: 'user_served_rps', color: PALETTE.it, label: 'Served' },
+        { key: 'user_dropped_rps', color: PALETTE.bad, label: 'Dropped' },
+        { key: 'user_capacity_rps', color: PALETTE.warn, label: 'Serving capacity', dash: [5, 4] },
+      ],
+      note:
+        'Where the load actually comes from. Capacity is what the racks could serve given their own ' +
+        'state, so it falls when they throttle or go dark — and the gap between offered and served is ' +
+        'what queues, then drops.',
+    },
+    {
+      title: 'Compute utilisation',
+      unit: '%',
+      yMin: 0,
+      series: [
+        { key: 'user_utilisation_pct', color: PALETTE.mech, label: 'Offered / capacity' },
+        { key: 'user_utilisation_pct__max', color: PALETTE.warn, label: 'Peak in bucket', dash: [3, 3] },
+      ],
+      lines: [{ value: 100.0, color: PALETTE.bad, label: 'capacity' }],
+    },
+    {
+      title: 'Request queue',
+      unit: 'requests',
+      yMin: 0,
+      series: [
+        { key: 'user_queued_requests', color: PALETTE.batt, label: 'Waiting' },
+        { key: 'user_queued_requests__max', color: PALETTE.warn, label: 'Peak in bucket', dash: [3, 3] },
+      ],
+      note: 'Emptying to zero while requests are being dropped is not recovery — abandoned requests stop waiting.',
+    },
+    {
+      title: 'Queue latency',
+      unit: 's',
+      yMin: 0,
+      series: [
+        { key: 'user_queue_latency_s', color: PALETTE.air, label: 'Wait to be served' },
+        { key: 'user_queue_latency_s__max', color: PALETTE.bad, label: 'Peak in bucket', dash: [3, 3] },
+      ],
+      lines: [{ value: meta.slo_latency_s, color: PALETTE.bad, label: 'latency budget' }],
+      note: 'Pinned at the budget means saturated: everything past it is being abandoned, so read the drop rate instead.',
+    },
     {
       title: 'Facility power',
       unit: 'kW',
@@ -114,6 +165,13 @@
       note: 'Gaps are ticks with no IT load at all, where PUE is undefined rather than large.',
     },
     {
+      title: 'Batch work owed',
+      unit: 'kWh',
+      yMin: 0,
+      series: [{ key: 'user_batch_backlog_kwh', color: PALETTE.sideB, label: 'Training work deferred' }],
+      note: 'Batch racks have no user waiting, so lost capacity delays their jobs instead of failing requests.',
+    },
+    {
       title: 'Unserved IT demand',
       unit: 'kW',
       yMin: 0,
@@ -133,6 +191,38 @@
 
   const state = { index: 0, playing: false, speed: 60, simTime: SIM.t[0], last: 0 };
   const panels = [];
+
+  /* Scheduled incidents, grouped by instant: both utility feeds dropping at the
+   * same second is one event to a human, and two markers at one x position just
+   * overlap illegibly. */
+  const INCIDENTS = (() => {
+    const byTime = new Map();
+    for (const event of SIM.events) {
+      if (event.kind !== 'scheduled') continue;
+      const label = event.detail || `${event.component} ${event.to}`;
+      const key = Math.round(event.t);
+      if (!byTime.has(key)) byTime.set(key, { t: event.t, labels: [] });
+      const entry = byTime.get(key);
+      if (!entry.labels.includes(label)) entry.labels.push(label);
+    }
+    return [...byTime.values()]
+      .map((entry) => ({ t: entry.t, label: entry.labels.join(' · ') }))
+      .sort((a, b) => a.t - b.t);
+  })();
+
+  /* The nearest incident either side of the cursor — a countdown before it and a
+   * count-up after, which is the question you actually ask while scrubbing:
+   * "how long until it hits" and then "how long has it been". */
+  function nearestIncident(t) {
+    let best = null;
+    for (const incident of INCIDENTS) {
+      const delta = incident.t - t;
+      if (best === null || Math.abs(delta) < Math.abs(best.delta)) {
+        best = { incident: incident, delta: delta };
+      }
+    }
+    return best;
+  }
 
   function tile(spec) {
     const value = SIM.kpis[spec.key];
@@ -269,21 +359,20 @@
   function buildMarkers() {
     const host = document.getElementById('markers');
     const span = SIM.t[SIM.n - 1] - SIM.t[0] || 1;
-    const seen = new Set();
-    for (const event of SIM.events) {
-      if (event.kind !== 'scheduled') continue;
-      const label = event.detail || `${event.component} ${event.to}`;
-      const stamp = `${Math.round(event.t)}|${label}`;
-      if (seen.has(stamp)) continue;
-      seen.add(stamp);
+    for (const incident of INCIDENTS) {
       const marker = document.createElement('button');
       marker.type = 'button';
       marker.className = 'marker';
-      marker.textContent = label;
-      marker.style.left = `${((event.t - SIM.t[0]) / span) * 100}%`;
+      marker.dataset.t = String(incident.t);
+      const at = document.createElement('span');
+      at.className = 'at';
+      at.textContent = FMT.wallShort(incident.t);
+      marker.appendChild(at);
+      marker.appendChild(document.createTextNode(incident.label));
+      marker.style.left = `${((incident.t - SIM.t[0]) / span) * 100}%`;
       marker.addEventListener('click', () => {
-        state.simTime = event.t;
-        seek(SIM.indexAtTime(event.t));
+        state.simTime = incident.t;
+        seek(SIM.indexAtTime(incident.t));
       });
       host.appendChild(marker);
     }
@@ -315,7 +404,9 @@
 
   function render(advance) {
     DIAGRAM.update(state.index, advance);
-    document.getElementById('readout-clock').textContent = FMT.clock(state.simTime);
+    document.getElementById('readout-clock').textContent =
+      `${FMT.wall(state.simTime)}  ·  +${FMT.span(state.simTime)} elapsed`;
+    renderIncident();
 
     const residual = SIM.at('balance_residual_kw', state.index);
     const readout = document.getElementById('readout-balance');
@@ -326,6 +417,26 @@
     document.getElementById('tick-count').textContent =
       `point ${state.index + 1} / ${SIM.n} · ${SIM.ticks} ticks simulated`;
     paintCursors();
+  }
+
+  function renderIncident() {
+    const node = document.getElementById('readout-incident');
+    node.classList.remove('warn', 'bad');
+    const nearest = nearestIncident(state.simTime);
+    if (nearest === null) {
+      node.textContent = 'no scheduled incident';
+      return;
+    }
+    const { incident, delta } = nearest;
+    const upcoming = delta > 0;
+    node.textContent = upcoming
+      ? `T−${FMT.span(delta)} → ${incident.label} at ${FMT.wall(incident.t)}`
+      : `T+${FMT.span(delta)} since ${incident.label} at ${FMT.wall(incident.t)}`;
+    node.classList.add(Math.abs(delta) <= 120 ? 'bad' : 'warn');
+
+    for (const marker of document.getElementById('markers').children) {
+      marker.classList.toggle('focused', Number(marker.dataset.t) === incident.t);
+    }
   }
 
   function frame(now) {
@@ -362,7 +473,16 @@
       `(${meta.ups_rating_kw} kW UPS and ${meta.battery_capacity_kwh} kWh of battery per side, ` +
       `one ${meta.generator_rating_kw} kW genset, ${meta.chiller_capacity_kw} kW liquid and ` +
       `${meta.crah_capacity_kw} kW air cooling). Every tick resolves in four passes: capacity down, demand up, ` +
-      `power down, then consume. The only lagged quantity is the coolant loop's stored heat.`;
+      `power down, then consume. The only lagged quantity is the coolant loop's stored heat. ` +
+      (meta.interactive_racks
+        ? `${meta.interactive_racks} of them serve user traffic peaking at ${FMT.num(meta.peak_rps, 0)} requests/s ` +
+          `(${FMT.num(meta.tokens_per_request, 0)} tokens each, ${FMT.num(meta.slo_latency_s, 0)} s latency budget); ` +
+          `a rack's draw follows the work assigned to it, and lost capacity turns into queued then dropped requests.`
+        : `No rack in this scenario serves user traffic — it is a purely electrical test.`) +
+      (meta.start_hour
+        ? ` The clock starts at ${String(meta.start_hour).padStart(2, '0')}:00 so that scheduled ` +
+          `incidents land on the daily traffic peak within minutes of t=0, instead of half a day in.`
+        : '');
 
     const scrub = document.getElementById('scrub');
     scrub.max = String(SIM.n - 1);

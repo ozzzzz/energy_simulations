@@ -86,7 +86,7 @@ def test_pue_stays_physical_on_every_scenario() -> None:
 def test_served_percentage_captures_degradation_that_uptime_misses() -> None:
     result = run_scenario("undersized_cords")
     assert result.kpis["uptime_pct"] == 100.0
-    assert float(result.kpis["served_pct"]) < 90.0
+    assert float(result.kpis["served_pct"]) < 95.0
     assert float(result.kpis["unserved_energy_kwh"]) > 0.0
 
 

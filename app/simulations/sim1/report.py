@@ -17,6 +17,11 @@ from app.simulations.sim1.scenarios import ScenarioConfig
 from app.simulations.sim1.viz.builder import write_html
 
 COMPARE_KPIS: tuple[tuple[str, str], ...] = (
+    # User-facing first: these are the numbers that say what a failure cost.
+    ("request_drop_pct", "Requests dropped %"),
+    ("slo_compliance_pct", "Within SLO %"),
+    ("p95_queue_latency_s", "p95 queue wait s"),
+    ("peak_utilisation_pct", "Peak compute %"),
     ("uptime_pct", "Uptime %"),
     ("served_pct", "IT served %"),
     ("pue_avg", "PUE"),

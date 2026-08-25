@@ -12,7 +12,8 @@ from app.simulations.sim1.cooling.chiller import Chiller
 from app.simulations.sim1.cooling.crah import Crah
 from app.simulations.sim1.cooling.loop import CoolantLoop
 from app.simulations.sim1.cooling.plant import CoolingPlant
-from app.simulations.sim1.economics import Economics
+from app.simulations.sim1.demand import RequestMix, Surge, UserArrivals, UserLoad
+from app.simulations.sim1.economics import Economics, Tariff
 from app.simulations.sim1.electrical.ats import AutomaticTransferSwitch
 from app.simulations.sim1.electrical.battery import BatteryString
 from app.simulations.sim1.electrical.feed import Feed
@@ -25,8 +26,9 @@ from app.simulations.sim1.events import EventSchedule, ScheduledEvent
 from app.simulations.sim1.facility import Facility
 from app.simulations.sim1.rack import Rack
 from app.simulations.sim1.units import DAY_SECONDS
-from app.simulations.sim1.workload import SpikeWindow, WorkloadProfile
+from app.simulations.sim1.workload import Segment, SpikeWindow, WorkloadProfile
 
+MINUTE = 60.0
 HOUR = 3600.0
 
 
@@ -37,7 +39,9 @@ class SiteConfig:
     n_racks: int = 4
     rack_nominal_kw: float = 135.0
     rack_peak_kw: float = 155.0
-    profiles: tuple[str, ...] | str = "training"
+    profiles: tuple[str, ...] | str = ("training", "inference", "inference", "training")
+    """Two racks running scheduled training, two serving user traffic. Scenarios
+    that are purely electrical tests override this with all-batch racks."""
     spikes: tuple[SpikeWindow, ...] = ()
 
     grid_capacity_kw: float = 1500.0
@@ -60,6 +64,31 @@ class SiteConfig:
     pump_demand_kw: float = 20.0
 
     cord_limit_kw: float = 900.0
+
+    rack_peak_tokens_per_s: float = 40_000.0
+    peak_rps_per_rack: float = 76.0
+    """Daily-peak request rate per *interactive* rack. Expressed per rack so that
+    changing how many racks serve users changes utilisation, not the traffic —
+    Because peak power and peak throughput are the same point in this model, a
+    rack at its nominal draw is already at ~85 % of its throughput ceiling: 76 rps
+    at 420 tokens each puts it near nominal at the daily peak and leaves ~20 % of
+    its throughput in reserve, which the burstiness eats into before any surge
+    arrives."""
+
+    tokens_per_request: float = 420.0
+    slo_latency_s: float = 8.0
+    traffic_low_fraction: float = 0.35
+    traffic_burstiness: float = 0.08
+    start_hour: float = 0.0
+    """Wall-clock hour that ``t = 0`` corresponds to.
+
+    A failure only means something if it lands on busy traffic, and the daily peak
+    is at 14:00. Rather than run twelve idle hours to get there, an incident
+    scenario starts its clock at 13:00 and schedules the failure a few minutes in
+    — same load, a fraction of the waiting."""
+
+    surges: tuple[Surge, ...] = ()
+
     seed: int = 1
 
     @property
@@ -69,6 +98,14 @@ class SiteConfig:
     @property
     def it_peak_kw(self) -> float:
         return self.n_racks * self.rack_peak_kw
+
+    @property
+    def interactive_racks(self) -> int:
+        return sum(1 for profile in self.rack_profiles() if WorkloadProfile(profile).segment is Segment.INTERACTIVE)
+
+    @property
+    def peak_rps(self) -> float:
+        return self.peak_rps_per_rack * self.interactive_racks
 
     def rack_profiles(self) -> list[str]:
         if isinstance(self.profiles, str):
@@ -127,6 +164,14 @@ def design_margins(site: SiteConfig) -> dict[str, float]:
         "single_side_nominal_pct": 100.0 * nominal_out / site.ups_rating_kw,
         "single_side_peak_pct": 100.0 * peak_out / site.ups_rating_kw,
         "generator_headroom_kw": site.generator_rating_kw - facility_nominal,
+        "interactive_racks": float(site.interactive_racks),
+        "peak_rps": site.peak_rps,
+        "capacity_rps": site.interactive_racks * site.rack_peak_tokens_per_s / site.tokens_per_request,
+        "peak_utilisation_pct": (
+            100.0 * site.peak_rps * site.tokens_per_request / (site.interactive_racks * site.rack_peak_tokens_per_s)
+            if site.interactive_racks
+            else 0.0
+        ),
     }
 
 
@@ -139,6 +184,7 @@ def build_facility(scenario: ScenarioConfig, seed: int | None = None) -> Facilit
             name=f"rack-{i + 1}",
             nominal_kw=site.rack_nominal_kw,
             peak_kw=site.rack_peak_kw,
+            peak_tokens_per_s=site.rack_peak_tokens_per_s,
             workload=WorkloadProfile(
                 profile=profile,
                 nominal_kw=site.rack_nominal_kw,
@@ -148,6 +194,7 @@ def build_facility(scenario: ScenarioConfig, seed: int | None = None) -> Facilit
                 # across invocations.
                 seed=base_seed * 1000 + i,
                 spikes=site.spikes,
+                clock_offset_s=site.start_hour * HOUR,
             ),
         )
         for i, profile in enumerate(site.rack_profiles())
@@ -184,132 +231,177 @@ def build_facility(scenario: ScenarioConfig, seed: int | None = None) -> Facilit
             crah=Crah(capacity_kw=site.crah_capacity_kw),
         ),
         racks=racks,
-        economics=Economics(),
+        economics=Economics(tariff=Tariff(clock_offset_s=site.start_hour * HOUR)),
+        user_load=UserLoad(
+            arrivals=UserArrivals(
+                peak_rps=site.peak_rps,
+                low_fraction=site.traffic_low_fraction,
+                burstiness=site.traffic_burstiness,
+                seed=base_seed * 7919,
+                surges=site.surges,
+                clock_offset_s=site.start_hour * HOUR,
+            ),
+            mix=RequestMix(tokens_per_request=site.tokens_per_request, slo_latency_s=site.slo_latency_s),
+        ),
         schedule=EventSchedule(events=scenario.events),
         cord_limit_kw=site.cord_limit_kw,
     )
 
 
 _PEAK_EVERYWHERE = (SpikeWindow(start_s=0.0, end_s=1e9, peak_fraction=1.0),)
+_ALL_USERS = ("inference", "inference", "inference", "inference")
 
 _SCENARIOS: dict[str, ScenarioConfig] = {
     "normal": ScenarioConfig(
         name="normal",
-        description="Steady state: diurnal load, 50/50 across both sides, PUE around 1.27.",
-        site=SiteConfig(profiles=("training", "inference", "inference", "training"), seed=1),
+        description=(
+            "Steady state over a week: user traffic follows the day, two racks train in the background, "
+            "load splits 50/50 across both sides, PUE around 1.27 and nothing is dropped."
+        ),
+        site=SiteConfig(seed=1),
         default_duration_s=7 * DAY_SECONDS,
         default_dt_s=60.0,
     ),
     "grid_outage_gen_ok": ScenarioConfig(
         name="grid_outage_gen_ok",
         description=(
-            "Both utility feeds drop. The UPSes ride it out on battery, the genset cranks for 30 s, "
-            "each ATS transfers, diesel burns, and the batteries recharge once the mains return."
+            "Both utility feeds drop at 10 min and return at 25 min. The UPSes ride it out on battery, "
+            "the genset cranks for 30 s, each ATS transfers, diesel burns, and the batteries recharge. "
+            "Users never notice."
         ),
-        site=SiteConfig(profiles="training", seed=2),
+        site=SiteConfig(start_hour=13.0, seed=2),
         events=(
-            ScheduledEvent(t=1800.0, target="grid_a", action="offline", settle_s=900.0, label="Utility A lost"),
-            ScheduledEvent(t=1800.0, target="grid_b", action="offline", settle_s=900.0, label="Utility B lost"),
-            ScheduledEvent(t=3600.0, target="grid_a", action="online", settle_s=900.0, label="Utility A restored"),
-            ScheduledEvent(t=3600.0, target="grid_b", action="online", settle_s=900.0, label="Utility B restored"),
+            ScheduledEvent(t=10 * MINUTE, target="grid_a", action="offline", settle_s=900.0, label="Utility A lost"),
+            ScheduledEvent(t=10 * MINUTE, target="grid_b", action="offline", settle_s=900.0, label="Utility B lost"),
+            ScheduledEvent(t=25 * MINUTE, target="grid_a", action="online", settle_s=900.0, label="Utility A restored"),
+            ScheduledEvent(t=25 * MINUTE, target="grid_b", action="online", settle_s=900.0, label="Utility B restored"),
         ),
-        default_duration_s=2 * HOUR,
+        default_duration_s=HOUR,
         default_dt_s=10.0,
         default_dt_fine_s=1.0,
     ),
     "grid_outage_gen_fail": ScenarioConfig(
         name="grid_outage_gen_fail",
         description=(
-            "The same outage with a genset that will not start. Three attempts fail, the batteries "
-            "drain to their cutoff, and the site goes dark."
+            "The same outage at 5 min, with a genset that will not start. Three attempts fail, the "
+            "batteries drain to their cutoff, the site goes dark — and every user request is dropped "
+            "from that moment on."
         ),
-        site=SiteConfig(profiles="training", generator_start_success_p=0.0, seed=3),
+        site=SiteConfig(start_hour=13.0, generator_start_success_p=0.0, seed=3),
         events=(
-            ScheduledEvent(t=600.0, target="grid_a", action="offline", settle_s=1800.0, label="Utility A lost"),
-            ScheduledEvent(t=600.0, target="grid_b", action="offline", settle_s=1800.0, label="Utility B lost"),
+            ScheduledEvent(t=5 * MINUTE, target="grid_a", action="offline", settle_s=1800.0, label="Utility A lost"),
+            ScheduledEvent(t=5 * MINUTE, target="grid_b", action="offline", settle_s=1800.0, label="Utility B lost"),
         ),
-        default_duration_s=40 * 60.0,
+        default_duration_s=35 * MINUTE,
         default_dt_s=5.0,
         default_dt_fine_s=1.0,
+    ),
+    "user_surge": ScenarioConfig(
+        name="user_surge",
+        description=(
+            "All four racks serve users, and traffic goes to 1.5x from 15 min to 75 min. Power and "
+            "cooling both hold, but the racks are already near their throughput ceiling: the queue "
+            "builds, latency hits the 8 s budget and requests start being dropped. The constraint is "
+            "compute, not kW."
+        ),
+        site=SiteConfig(
+            profiles=_ALL_USERS,
+            surges=(Surge(start_s=15 * MINUTE, end_s=75 * MINUTE, multiplier=1.5, label="Traffic surge"),),
+            start_hour=13.0,
+            seed=9,
+        ),
+        events=(
+            ScheduledEvent(t=15 * MINUTE, target="marker", action="note", settle_s=HOUR, label="Traffic surge begins"),
+            ScheduledEvent(t=75 * MINUTE, target="marker", action="note", settle_s=1800.0, label="Traffic surge ends"),
+        ),
+        default_duration_s=2 * HOUR,
+        default_dt_s=15.0,
+        default_dt_fine_s=5.0,
     ),
     "load_spike": ScenarioConfig(
         name="load_spike",
         description=(
-            "A training burst pins every rack at peak for three hours. The answer this scenario gives "
-            "is 'yes, but only just': liquid heat reaches about 558 kW against 600 kW of chiller, while "
-            "each UPS sits near half load. Cooling, not power, is the tighter margin."
+            "The power-and-cooling question with users out of the way: all four racks run batch pinned "
+            "at peak from 15 min to 75 min. Power, yes — each UPS stays near half load. Cooling is the "
+            "tighter margin, with about 44 kW of chiller headroom left of 600."
         ),
         site=SiteConfig(
             profiles="training",
-            spikes=(SpikeWindow(start_s=2 * HOUR, end_s=5 * HOUR, peak_fraction=1.0),),
+            spikes=(SpikeWindow(start_s=15 * MINUTE, end_s=75 * MINUTE, peak_fraction=1.0),),
             seed=4,
         ),
         events=(
-            ScheduledEvent(t=2 * HOUR, target="marker", action="note", settle_s=3600.0, label="Load spike begins"),
-            ScheduledEvent(t=5 * HOUR, target="marker", action="note", settle_s=1800.0, label="Load spike ends"),
+            ScheduledEvent(t=15 * MINUTE, target="marker", action="note", settle_s=1800.0, label="Batch load at peak"),
+            ScheduledEvent(t=75 * MINUTE, target="marker", action="note", settle_s=1800.0, label="Peak load ends"),
         ),
-        default_duration_s=8 * HOUR,
-        default_dt_s=30.0,
+        default_duration_s=2 * HOUR,
+        default_dt_s=15.0,
         default_dt_fine_s=5.0,
     ),
     "cooling_failure": ScenarioConfig(
         name="cooling_failure",
         description=(
-            "The chiller trips. The loop climbs about 1.5 C per minute, rack delta-T collapses, racks "
-            "throttle and then shut down — and the chiller's own electrical draw disappears from the "
-            "power stack at the same time. It is restored after four hours so the recovery path is "
-            "visible too — without that, the hall never comes back, because nothing else can pull heat "
-            "out of the loop."
+            "The chiller trips at 15 min. The loop climbs about 1.5 C per minute, rack delta-T "
+            "collapses, racks throttle and then shut down — and the chiller's own electrical draw "
+            "disappears from the power stack at the same time. Watch the request queue: throttling cuts "
+            "serving capacity long before the racks go dark. Restored at 105 min, because nothing else "
+            "can pull heat out of the loop."
         ),
-        site=SiteConfig(profiles="training", seed=5),
+        site=SiteConfig(start_hour=13.0, seed=5),
         events=(
-            ScheduledEvent(t=HOUR, target="chiller", action="fault", settle_s=3 * HOUR, label="Chiller tripped"),
-            ScheduledEvent(t=5 * HOUR, target="chiller", action="restore", settle_s=2 * HOUR, label="Chiller restored"),
+            ScheduledEvent(t=15 * MINUTE, target="chiller", action="fault", settle_s=2 * HOUR, label="Chiller tripped"),
+            ScheduledEvent(t=105 * MINUTE, target="chiller", action="restore", settle_s=HOUR, label="Chiller restored"),
         ),
-        default_duration_s=8 * HOUR,
+        default_duration_s=3 * HOUR,
         default_dt_s=30.0,
         default_dt_fine_s=5.0,
     ),
     "side_a_lost": ScenarioConfig(
         name="side_a_lost",
         description=(
-            "Transformer A trips. UPS A quietly burns its battery down with no input, then side B "
-            "carries the whole site at about 88 % of its nameplate and survives."
+            "Transformer A trips at 15 min. UPS A quietly burns its battery down with no input, then "
+            "side B carries the whole site at about 94 % of its nameplate and survives. Users see "
+            "nothing."
         ),
-        site=SiteConfig(profiles="training", seed=6),
+        # `start_hour` puts t=0 on the daily traffic peak, so the trip lands on a
+        # busy site 15 minutes in rather than 13 hours in.
+        site=SiteConfig(start_hour=13.0, seed=6),
         events=(
-            ScheduledEvent(t=1800.0, target="tx_a", action="trip", settle_s=2400.0, label="Transformer A tripped"),
+            ScheduledEvent(t=15 * MINUTE, target="tx_a", action="trip", settle_s=HOUR, label="Transformer A tripped"),
         ),
-        default_duration_s=4 * HOUR,
-        default_dt_s=10.0,
+        default_duration_s=90 * MINUTE,
+        default_dt_s=15.0,
         default_dt_fine_s=1.0,
     ),
     "side_a_lost_at_peak": ScenarioConfig(
         name="side_a_lost_at_peak",
         description=(
-            "The same failure with IT at peak. UPS B sits just over 100 %, its hold timer expires and "
-            "it transfers to bypass: the load survives, but battery protection is gone."
+            "A purely electrical test: all four racks run batch at peak, so there is no user traffic to "
+            "confuse the picture. Transformer A trips at 10 min, UPS B sits just over 100 %, its hold "
+            "timer expires and it transfers to bypass — the load survives, but battery protection is "
+            "gone."
         ),
         site=SiteConfig(profiles="training", spikes=_PEAK_EVERYWHERE, seed=7),
         events=(
-            ScheduledEvent(t=1800.0, target="tx_a", action="trip", settle_s=2400.0, label="Transformer A tripped"),
+            ScheduledEvent(t=10 * MINUTE, target="tx_a", action="trip", settle_s=1800.0, label="Transformer A tripped"),
         ),
-        default_duration_s=4 * HOUR,
+        default_duration_s=HOUR,
         default_dt_s=10.0,
         default_dt_fine_s=1.0,
     ),
     "undersized_cords": ScenarioConfig(
         name="undersized_cords",
         description=(
-            "2N on paper only: each cord is rated for 60 % of site peak. Losing a side curtails IT "
-            "instead of failing over cleanly."
+            "2N on paper only: each cord is rated for 60 % of site peak. Transformer A trips at 15 min, "
+            "and losing a side curtails IT instead of failing over cleanly — the curtailment lands on "
+            "user requests."
         ),
-        site=SiteConfig(profiles="training", cord_limit_kw=474.0, seed=8),
+        site=SiteConfig(start_hour=13.0, cord_limit_kw=474.0, seed=8),
         events=(
-            ScheduledEvent(t=1800.0, target="tx_a", action="trip", settle_s=2400.0, label="Transformer A tripped"),
+            ScheduledEvent(t=15 * MINUTE, target="tx_a", action="trip", settle_s=HOUR, label="Transformer A tripped"),
         ),
-        default_duration_s=4 * HOUR,
-        default_dt_s=10.0,
+        default_duration_s=90 * MINUTE,
+        default_dt_s=15.0,
         default_dt_fine_s=1.0,
     ),
 }

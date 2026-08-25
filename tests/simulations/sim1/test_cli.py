@@ -113,3 +113,48 @@ def test_an_unknown_scenario_fails_loudly() -> None:
     result = runner.invoke(cli, ["sim1-run", "--scenario", "does_not_exist"])
     assert result.exit_code != 0
     assert isinstance(result.exception, ValueError)
+
+
+def test_a_short_duration_warns_that_events_were_skipped(tmp_path) -> None:
+    """`cooling_failure` trips at 15 min and restores at 105 min, so a 20-minute
+    override runs the failure but never the recovery — worth saying out loud."""
+    result = runner.invoke(
+        cli,
+        [
+            "sim1-run",
+            "--scenario",
+            "cooling_failure",
+            "--duration",
+            "1200",
+            "--out",
+            str(tmp_path),
+            "--no-viz",
+            "--no-analysis",
+            "--no-csv",
+            "--no-open",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "cuts cooling_failure short" in result.stderr
+    assert "Chiller restored" in result.stderr
+
+
+def test_the_full_scenario_needs_no_warning(tmp_path) -> None:
+    result = runner.invoke(
+        cli,
+        [
+            "sim1-run",
+            "--scenario",
+            "user_surge",
+            "--out",
+            str(tmp_path),
+            "--no-viz",
+            "--no-analysis",
+            "--no-csv",
+            "--no-open",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "cuts" not in result.stderr
+    kpis = json.loads((tmp_path / "user_surge" / "kpis.json").read_text())
+    assert float(kpis["request_drop_pct"]) > 1.0

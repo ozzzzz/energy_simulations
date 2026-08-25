@@ -97,6 +97,15 @@ FACILITY_SERIES: tuple[SeriesSpec, ...] = (
     SeriesSpec("cool_rejected_liquid_kw", _KW, label="Rejected via liquid"),
     SeriesSpec("cool_rejected_air_kw", _KW, label="Rejected via air"),
     SeriesSpec("cool_chiller_capacity_kw", _KW, agg="last", label="Chiller capacity"),
+    # --- user traffic --------------------------------------------------------
+    SeriesSpec("user_offered_rps", 0.01, companion="max", label="Offered"),
+    SeriesSpec("user_served_rps", 0.01, label="Served"),
+    SeriesSpec("user_dropped_rps", 0.01, companion="max", label="Dropped"),
+    SeriesSpec("user_capacity_rps", 0.01, agg="last", companion="min", label="Serving capacity"),
+    SeriesSpec("user_queued_requests", 0.1, agg="last", companion="max", label="Queued requests"),
+    SeriesSpec("user_queue_latency_s", 0.01, companion="max", label="Queue latency"),
+    SeriesSpec("user_utilisation_pct", _PCT, companion="max", label="Compute utilisation"),
+    SeriesSpec("user_batch_backlog_kwh", 0.01, agg="last", label="Batch work owed"),
     SeriesSpec("pue", 0.001, label="PUE"),
     SeriesSpec("racks_down", 1.0, agg="max", label="Racks down"),
     SeriesSpec("balance_residual_kw", 0.001, companion="max", label="Balance residual"),
@@ -104,6 +113,7 @@ FACILITY_SERIES: tuple[SeriesSpec, ...] = (
 
 RACK_SERIES: tuple[SeriesSpec, ...] = (
     SeriesSpec("drawn_kw", _KW, label="Draw"),
+    SeriesSpec("tokens_per_s", 1.0, label="Throughput"),
     SeriesSpec("temp_c", _TEMP, companion="max", label="Temperature"),
     SeriesSpec("removed_kw", _KW, label="Heat removed"),
 )
@@ -134,6 +144,15 @@ COLUMN_GROUPS: dict[str, tuple[str, ...]] = {
         "cool_chiller_capacity_kw",
     ),
     "thermal": ("rack_temp_max_c", "rack_temp_mean_c", "cool_loop_supply_c", "cool_loop_return_c", "cool_crah_room_c"),
+    "users": (
+        "user_offered_rps",
+        "user_served_rps",
+        "user_dropped_rps",
+        "user_capacity_rps",
+        "user_queued_requests",
+        "user_queue_latency_s",
+        "user_utilisation_pct",
+    ),
     "efficiency": ("pue", "balance_residual_kw"),
     "cost": ("energy_cost_usd", "diesel_cost_usd", "unserved_cost_usd", "downtime_cost_usd"),
 }

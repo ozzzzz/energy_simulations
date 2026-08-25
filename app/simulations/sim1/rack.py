@@ -15,7 +15,7 @@ from enum import StrEnum
 from app.simulations.sim1.protocols import LoadResult, TickContext
 from app.simulations.sim1.thermal import step_lumped
 from app.simulations.sim1.units import kwh
-from app.simulations.sim1.workload import WorkloadProfile
+from app.simulations.sim1.workload import Segment, WorkloadProfile
 
 
 class RackState(StrEnum):
@@ -34,6 +34,16 @@ class Rack:
     workload: WorkloadProfile
     nominal_kw: float = 135.0
     peak_kw: float = 155.0
+    idle_fraction: float = 0.15
+    """Draw with nothing to do. A rack serving zero requests is not a rack at
+    0 kW — fans, NICs, idling SMs and the host all keep running, which is why
+    an interactive rack's power floor is well above zero."""
+
+    peak_tokens_per_s: float = 40_000.0
+    """Throughput at ``peak_kw``. A stand-in for "how fast this rack serves the
+    model it is hosting" rather than a benchmark claim — only its ratio to the
+    arrival rate affects the simulation."""
+
     ambient_c: float = 25.0
     throttle_temp_c: float = 85.0
     shutdown_temp_c: float = 95.0
@@ -52,6 +62,7 @@ class Rack:
     psu_efficiency: float = 0.97
 
     kind: str = field(default="rack", init=False)
+    segment: Segment = field(init=False)
     temp_c: float = field(init=False)
     state: RackState = field(default=RackState.IDLE, init=False)
     energy_kwh: float = field(default=0.0, init=False)
@@ -62,6 +73,7 @@ class Rack:
 
     def __post_init__(self) -> None:
         self.temp_c = self.ambient_c
+        self.segment = self.workload.segment
 
     @property
     def down(self) -> bool:
@@ -75,15 +87,57 @@ class Rack:
             return self.peak_kw * self.throttle_ratio
         return self.peak_kw
 
-    def request(self, ctx: TickContext) -> float:
+    @property
+    def idle_kw(self) -> float:
+        return self.idle_fraction * self.nominal_kw
+
+    def tokens_per_s_for(self, kw: float) -> float:
+        """Throughput at a given draw.
+
+        Linear above the idle floor: GPU power tracks utilisation closely enough
+        that a straight line between (idle, 0) and (peak, peak_tokens) is honest,
+        and being invertible is what lets the scheduler ask for power in terms of
+        the work it needs done.
+        """
+        span_kw = self.peak_kw - self.idle_kw
+        if span_kw <= 0.0:
+            return 0.0
+        return self.peak_tokens_per_s * max(0.0, kw - self.idle_kw) / span_kw
+
+    def kw_for(self, tokens_per_s: float) -> float:
+        """Draw needed to serve ``tokens_per_s``, bounded by idle and peak."""
+        if self.peak_tokens_per_s <= 0.0:
+            return self.idle_kw
+        span_kw = self.peak_kw - self.idle_kw
+        wanted = self.idle_kw + span_kw * max(0.0, tokens_per_s) / self.peak_tokens_per_s
+        return min(wanted, self.peak_kw)
+
+    @property
+    def capacity_tokens_per_s(self) -> float:
+        """Throughput this rack could serve right now, given its own state.
+
+        Falls to a throttled fraction under heat and to zero when shut down,
+        which is how a thermal event becomes a user-visible one.
+        """
+        return self.tokens_per_s_for(self.draw_cap_kw)
+
+    def request(self, ctx: TickContext, wanted_kw: float) -> float:
         """Phase 2. Wanted power, already capped by the state at tick start.
+
+        The ask comes from the scheduler rather than from the rack itself: an
+        interactive rack's demand is set by arriving user traffic, a batch rack's
+        by its own profile. See :mod:`app.simulations.sim1.demand`.
 
         Capping here rather than during ``apply`` is what makes the grant the
         rack's actual draw: ``granted <= requested <= cap`` holds by
         construction, so no third reconciliation pass is needed.
         """
-        self.demand_kw = self.workload.demand_kw(ctx.t)
+        self.demand_kw = max(0.0, wanted_kw)
         return min(self.demand_kw, self.draw_cap_kw)
+
+    def profile_ask_kw(self, ctx: TickContext) -> float:
+        """What this rack's own profile wants — the batch scheduler's input."""
+        return self.workload.demand_kw(ctx.t)
 
     def apply(self, ctx: TickContext, granted_kw: float, sink_c: float, ua_scale: float = 1.0) -> LoadResult:
         drawn = max(0.0, granted_kw)
@@ -170,6 +224,8 @@ class Rack:
     def telemetry(self) -> dict[str, float | str]:
         return {
             "state": self.state.value,
+            "segment": self.segment.value,
+            "tokens_per_s": self.tokens_per_s_for(self.drawn_kw),
             "demand_kw": self.demand_kw,
             "drawn_kw": self.drawn_kw,
             "it_kw": self.it_kw,

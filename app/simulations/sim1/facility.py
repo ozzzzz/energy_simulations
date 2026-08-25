@@ -19,6 +19,7 @@ the piece sim0 lacks and the piece that makes 2N work.
 from dataclasses import dataclass, field
 
 from app.simulations.sim1.cooling.plant import CoolingPlant, CoolingSupply
+from app.simulations.sim1.demand import DemandResult, UserLoad
 from app.simulations.sim1.economics import Economics
 from app.simulations.sim1.electrical.feed import Feed, FeedDelivery, split_2n
 from app.simulations.sim1.electrical.generator import DieselGenerator, GenBus
@@ -37,6 +38,7 @@ class Facility:
     cooling: CoolingPlant
     racks: list[Rack]
     economics: Economics
+    user_load: UserLoad = field(default_factory=UserLoad)
     schedule: EventSchedule = field(default_factory=EventSchedule)
 
     cord_limit_kw: float = 900.0
@@ -68,7 +70,10 @@ class Facility:
         self.genset.command(start=self.side_a.mains_lost and self.side_b.mains_lost)
 
         # ---- phase 2: demand UP, non-mutating --------------------------
-        it_demand_kw = [rack.request(ctx) for rack in self.racks]
+        # User traffic first: the scheduler turns arriving requests into a power
+        # ask per interactive rack, and each batch rack's own profile into its own.
+        asks_kw = self.user_load.plan(ctx, self.racks)
+        it_demand_kw = [rack.request(ctx, ask) for rack, ask in zip(self.racks, asks_kw, strict=True)]
         want_it_kw = sum(it_demand_kw)
         want_mech_kw = self.cooling.request(ctx)
         demand_kw = want_it_kw + want_mech_kw
@@ -112,6 +117,9 @@ class Facility:
             air_heat_kw += rack.air_kw
 
         self.cooling.observe(ctx, liquid_heat_kw=liquid_heat_kw, air_heat_kw=air_heat_kw)
+        # Served throughput follows from what the racks actually drew, so a
+        # throttled or dark rack becomes queued and then dropped user requests.
+        demand = self.user_load.settle(ctx, self.racks)
 
         # The uncapped workload ask, which is the only honest denominator for
         # "what did we fail to serve": `it_demand_kw` above is already clipped by
@@ -119,7 +127,7 @@ class Facility:
         # thermally dead hall as fully served.
         it_want_kw = sum(rack.demand_kw for rack in self.racks)
 
-        return self._row(ctx, del_a, del_b, gen_bus, supply, it_want_kw, want_it_kw, want_mech_kw, it_drawn_kw)
+        return self._row(ctx, del_a, del_b, gen_bus, supply, demand, it_want_kw, want_it_kw, want_mech_kw, it_drawn_kw)
 
     # ------------------------------------------------------------------
     def _apply_event(self, event: ScheduledEvent) -> None:
@@ -157,6 +165,7 @@ class Facility:
         del_b: FeedDelivery,
         gen_bus: GenBus,
         supply: CoolingSupply,
+        demand: DemandResult,
         it_want_kw: float,
         it_request_kw: float,
         want_mech_kw: float,
@@ -222,6 +231,11 @@ class Facility:
             row[f"gen_{key}"] = value
         for key, value in self.cooling.telemetry().items():
             row[f"cool_{key}"] = value
+        for key, value in self.user_load.telemetry().items():
+            row[f"user_{key}"] = value
+        # Undefined rather than huge when nothing is being served at all.
+        row["user_queue_latency_s"] = demand.queue_latency_s
+        row["user_slo_breach"] = 1.0 if demand.dropped_rps > 1e-9 else 0.0
 
         energy_usd = self.economics.energy_usd(ctx.t, kwh(grid_kw, ctx.dt))
         diesel_l = self.genset.fuel_rate_l_per_h * ctx.dt / 3600.0

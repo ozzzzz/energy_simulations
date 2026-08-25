@@ -30,7 +30,7 @@ def _step(plant: CoolingPlant, racks: list[Rack], ctx: TickContext, power_kw: fl
     for rack in racks:
         rack.apply(
             ctx,
-            granted_kw=rack.request(ctx),
+            granted_kw=rack.request(ctx, rack.profile_ask_kw(ctx)),
             sink_c=supply.sink_c(rack.liquid_capture_rate),
             ua_scale=supply.ua_scale,
         )

@@ -187,6 +187,30 @@ const FMT = {
     const ss = String(total % 60).padStart(2, '0');
     return (days > 0 ? `d${days + 1} ` : '') + `${hh}:${mm}:${ss}`;
   },
+  /* Wall-clock time, using the hour the scenario's t=0 corresponds to. Incident
+   * scenarios start at 13:00 so a failure lands on peak traffic minutes in
+   * rather than half a day in — without this the times read as meaningless. */
+  wall(seconds) {
+    const offset = (SIM.meta && SIM.meta.start_hour ? SIM.meta.start_hour : 0) * 3600;
+    const total = Math.max(0, Math.round(seconds + offset));
+    const day = Math.floor(total / 86400);
+    const hh = String(Math.floor((total % 86400) / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+    const ss = String(total % 60).padStart(2, '0');
+    return (day > 0 ? `d${day + 1} ` : '') + `${hh}:${mm}:${ss}`;
+  },
+  /* HH:MM — enough for a timeline marker, where seconds are noise. */
+  wallShort(seconds) {
+    return FMT.wall(seconds).replace(/:\d\d$/, '');
+  },
+  /* Elapsed offset for a countdown: mm:ss under an hour, h:mm:ss over. */
+  span(seconds) {
+    const total = Math.max(0, Math.round(Math.abs(seconds)));
+    const hh = Math.floor(total / 3600);
+    const mm = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+    const ss = String(total % 60).padStart(2, '0');
+    return hh > 0 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
+  },
   kw(value) {
     if (!Number.isFinite(value)) return '—';
     return `${value.toFixed(value < 100 ? 1 : 0)} kW`;
@@ -205,6 +229,14 @@ const FMT = {
     if (!Number.isFinite(seconds)) return '—';
     if (seconds >= 5400) return `${(seconds / 3600).toFixed(1)} h`;
     return `${(seconds / 60).toFixed(1)} min`;
+  },
+  compact(value) {
+    if (!Number.isFinite(value)) return '—';
+    const abs = Math.abs(value);
+    if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+    if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}k`;
+    return value.toFixed(0);
   },
   words(text) {
     return String(text || '').replace(/_/g, ' ');

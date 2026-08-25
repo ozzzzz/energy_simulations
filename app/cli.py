@@ -11,6 +11,28 @@ from app.simulations.sim1.scenarios import design_margins, get_scenario, scenari
 cli = typer.Typer(pretty_exceptions_enable=False)
 
 
+def _warn_if_truncated(scenario_name: str, duration: float | None) -> None:
+    """Overriding the duration can cut a scenario off before its events fire.
+
+    Several sim1 scenarios schedule their failure for midday, so that it lands on
+    the daily traffic peak. A 2 h override then produces a run that looks
+    perfectly healthy for the wrong reason, which is worth a word rather than a
+    silent surprise.
+    """
+    if duration is None:
+        return
+    events = get_scenario(scenario_name).events
+    missed = [event for event in events if event.t >= duration]
+    if missed:
+        typer.secho(
+            f"warning: --duration {duration:.0f}s cuts {scenario_name} short of "
+            f"{len(missed)} scheduled event(s), the first at {missed[0].t:.0f}s "
+            f"({missed[0].described()}). Drop --duration to use the scenario's own timescale.",
+            err=True,
+            fg=typer.colors.YELLOW,
+        )
+
+
 def _load_env() -> None:
     from dotenv import load_dotenv
 
@@ -55,16 +77,24 @@ def sim0_run(
     duration: float = typer.Option(604800.0, help="Simulated duration, seconds (default: 1 week)"),
     dt: float = typer.Option(60.0, help="Tick size, seconds"),
     output: str = typer.Option(None, help="Optional CSV output path for the time series"),
+    html: str = typer.Option(None, help="Optional self-contained HTML report path (the dashboard's graphs, static)"),
 ) -> None:
     """Run a sim0 scenario headlessly and print KPIs."""
     import json
+    import pathlib
 
     from app.simulations.sim0.engine import run_scenario
+    from app.simulations.sim0.report import write_report
 
     df, kpis = run_scenario(scenario, duration_s=duration, dt=dt)
     if output:
-        df.to_csv(output, index=False)
-        typer.echo(f"Time series written to {output}")
+        path = pathlib.Path(output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path, index=False)
+        typer.echo(f"Time series written to {path}")
+    if html:
+        report = write_report(df, kpis, scenario, html)
+        typer.echo(f"Report written to {report} ({report.stat().st_size / 1024:.0f} KB)")
     typer.echo(json.dumps(kpis, indent=2))
 
 
@@ -118,6 +148,7 @@ def sim1_run(
 ) -> None:
     """Run a sim1 scenario, print its KPIs and write the artifacts."""
     config = get_scenario(scenario)
+    _warn_if_truncated(scenario, duration)
     result = sim1_run_scenario(scenario, duration_s=duration, dt=dt, dt_fine=dt_fine, seed=seed)
     artifacts = write_artifacts(result, config, out, viz=viz, analysis=analysis, csv=csv, viz_points=viz_points)
 
@@ -141,6 +172,7 @@ def sim1_viz(
 ) -> None:
     """Build only the single-file visualization — fast iteration on the page."""
     config = get_scenario(scenario)
+    _warn_if_truncated(scenario, duration)
     result = sim1_run_scenario(scenario, duration_s=duration, dt=dt, dt_fine=dt_fine, seed=seed)
     artifacts = write_artifacts(result, config, out, viz=True, analysis=False, csv=False, viz_points=viz_points)
     page = artifacts.viz
@@ -154,7 +186,9 @@ def sim1_viz(
 @cli.command("sim1-compare")
 def sim1_compare(
     scenarios: str = typer.Option(",".join(scenario_names()), help="Comma-separated scenario names"),
-    duration: float = typer.Option(None, help="Override every scenario's duration, seconds"),
+    duration: float = typer.Option(
+        None, help="Override every scenario's duration, seconds (may cut scenarios short of their events)"
+    ),
     out: str = typer.Option("out/sim1/compare", help="Output directory"),
 ) -> None:
     """Run several scenarios and compare their headline KPIs."""
@@ -162,6 +196,7 @@ def sim1_compare(
     results = []
     for name in names:
         typer.echo(f"running {name}...")
+        _warn_if_truncated(name, duration)
         results.append(sim1_run_scenario(name, duration_s=duration))
     html_path, csv_path = write_comparison(results, out)
     typer.echo(Path(csv_path).read_text())

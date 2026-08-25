@@ -114,18 +114,19 @@ const DIAGRAM = (function () {
         title: `UPS ${upper}`,
         state: `${side}_ups_state`,
         value: (i) => `${FMT.kw(SIM.at(`${side}_ups_output_kw`, i))} · ${FMT.num(SIM.at(`${side}_ups_load_pct`, i))}%`,
-        alarmAbove: { key: `${side}_ups_load_pct`, limit: 100 },
+        alarms: [{ key: `${side}_ups_load_pct`, limit: 100 }],
       });
       addNode({
         id: `batt_${side}`,
         x: COLS.ups,
         y: row + 68,
         w: W,
-        h: 40,
+        h: 48,
         cls: cls,
         title: `BATTERY ${upper}`,
         gauge: `${side}_batt_soc`,
-        value: (i) => FMT.minutes(SIM.at(`${side}_autonomy_s`, i)),
+        value: (i) =>
+          `${FMT.num(SIM.at(`${side}_batt_soc`, i) * 100, 0)}% · ${FMT.minutes(SIM.at(`${side}_autonomy_s`, i))}`,
       });
       addNode({
         id: `pdu_${side}`,
@@ -174,11 +175,64 @@ const DIAGRAM = (function () {
         w: 152,
         h: rackH,
         cls: 'rack',
-        title: name.toUpperCase(),
+        title: `${name.toUpperCase()} · ${((meta.rack_segments || {})[name] || '').slice(0, 5).toUpperCase()}`,
         rackState: name,
         value: (i) => `${FMT.kw(SIM.rackAt(name, 'drawn_kw', i))} · ${FMT.degrees(SIM.rackAt(name, 'temp_c', i))}`,
       });
     });
+
+    const users = SIM.rackNames.filter((name) => (meta.rack_segments || {})[name] === 'interactive');
+    if (users.length) {
+      addNode({
+        id: 'users',
+        x: 978,
+        y: 16,
+        w: 152,
+        h: 76,
+        cls: 'user',
+        title: 'USERS',
+        value: (i) => {
+          const util = SIM.at('user_utilisation_pct', i);
+          const load = Number.isFinite(util) ? `${FMT.num(util, 0)}% util` : 'saturated';
+          return `${FMT.num(SIM.at('user_offered_rps', i))} rps · ${load}`;
+        },
+        subtitle: (i) => `capacity ${FMT.num(SIM.at('user_capacity_rps', i), 0)} rps`,
+        // Alarms on dropped traffic rather than on utilisation, because the
+        // worst case — zero capacity — has no utilisation figure at all.
+        alarms: [
+          { key: 'user_dropped_rps', limit: 0.01 },
+          { key: 'user_utilisation_pct', limit: 100 },
+        ],
+      });
+      addNode({
+        id: 'queue',
+        x: 978,
+        y: 104,
+        w: 152,
+        h: 76,
+        cls: 'user',
+        title: 'QUEUE',
+        value: (i) => `${FMT.num(SIM.at('user_queued_requests', i), 0)} waiting`,
+        subtitle: (i) => `${FMT.num(SIM.at('user_queue_latency_s', i), 1)} s of ${FMT.num(meta.slo_latency_s, 0)} s`,
+        alarms: [{ key: 'user_queue_latency_s', limit: (meta.slo_latency_s || 8) * 0.75 }],
+      });
+      addNode({
+        id: 'drops',
+        x: 978,
+        y: 192,
+        w: 152,
+        h: 76,
+        cls: 'drop',
+        title: 'DROPPED',
+        value: (i) => `${FMT.num(SIM.at('user_dropped_rps', i))} rps`,
+        subtitle: (i) => {
+          const offered = SIM.at('user_offered_rps', i);
+          const dropped = SIM.at('user_dropped_rps', i);
+          return offered > 0 ? `${FMT.num((dropped / offered) * 100, 1)}% of offered` : 'none offered';
+        },
+        alarms: [{ key: 'user_dropped_rps', limit: 0.01 }],
+      });
+    }
 
     addNode({
       id: 'heat',
@@ -222,7 +276,7 @@ const DIAGRAM = (function () {
       title: 'COOLANT LOOP',
       value: (i) =>
         `${FMT.degrees(SIM.at('cool_loop_supply_c', i))} → ${FMT.degrees(SIM.at('cool_loop_return_c', i))}`,
-      alarmAbove: { key: 'cool_loop_supply_c', limit: 30 },
+      alarms: [{ key: 'cool_loop_supply_c', limit: 30 }],
     });
     addNode({
       id: 'chiller',
@@ -324,6 +378,27 @@ const DIAGRAM = (function () {
       addEdge({ from: `rack_${index}`, a: 's', to: 'heat', b: 'n', rack: [name, 'removed_kw'], color: PALETTE.heat });
     });
 
+    if (users.length) {
+      const refRps = meta.capacity_rps || meta.peak_rps || 1;
+      addEdge({ from: 'users', a: 'w', to: 'queue', b: 'n', key: 'user_offered_rps', color: PALETTE.it, ref: refRps });
+      addEdge({ from: 'queue', a: 's', to: 'drops', b: 'n', key: 'user_dropped_rps', color: PALETTE.bad, ref: refRps });
+      for (const name of users) {
+        const index = SIM.rackNames.indexOf(name);
+        addEdge({
+          from: 'queue',
+          a: 'w',
+          to: `rack_${index}`,
+          b: 'e',
+          // Served work is split across the racks serving it, so each strand
+          // carries its own share rather than the site total.
+          scale: 1 / users.length,
+          key: 'user_served_rps',
+          color: PALETTE.it,
+          ref: refRps / users.length,
+        });
+      }
+    }
+
     addEdge({ from: 'bus', a: 's', to: 'cool', b: 'e', key: 'mech_kw', color: PALETTE.mech });
     addEdge({ from: 'heat', a: 'w', to: 'cdu', b: 'e', key: 'cool_liquid_heat_kw', color: PALETTE.heat });
     addEdge({ from: 'cdu', a: 'w', to: 'loop', b: 'e', key: 'cool_liquid_heat_kw', color: PALETTE.heat });
@@ -368,19 +443,32 @@ const DIAGRAM = (function () {
         title.textContent = spec.title;
         group.appendChild(title);
 
-        parts.state = el('text', { class: 'state', x: spec.x + 9, y: spec.y + spec.h - 20 });
-        group.appendChild(parts.state);
+        // Only for nodes that actually have a state. An empty text element here
+        // is invisible but sits exactly where a gauge goes, so creating one
+        // unconditionally left a collision waiting for whoever added a state next.
+        if (spec.state || spec.rackState) {
+          parts.state = el('text', { class: 'state', x: spec.x + 9, y: spec.y + spec.h - 20 });
+          group.appendChild(parts.state);
+        }
 
         parts.value = el('text', { class: 'value', x: spec.x + 9, y: spec.y + spec.h - 7 });
         group.appendChild(parts.value);
 
+        if (spec.subtitle) {
+          parts.subtitle = el('text', { class: 'state', x: spec.x + 9, y: spec.y + 30 });
+          group.appendChild(parts.subtitle);
+        }
+
         if (spec.gauge) {
           const gauge = el('g', { class: 'gauge' });
-          gauge.appendChild(el('rect', { x: spec.x + 9, y: spec.y + spec.h - 34, width: spec.w - 18, height: 5, rx: 2 }));
+          // Anchored under the title rather than above the bottom edge, so it
+          // stays clear of the text whatever height the node is.
+          const gaugeY = spec.y + 23;
+          gauge.appendChild(el('rect', { x: spec.x + 9, y: gaugeY, width: spec.w - 18, height: 5, rx: 2 }));
           parts.gaugeFill = el('rect', {
             class: 'fill',
             x: spec.x + 9,
-            y: spec.y + spec.h - 34,
+            y: gaugeY,
             width: 0,
             height: 5,
             rx: 2,
@@ -396,16 +484,17 @@ const DIAGRAM = (function () {
   }
 
   function flowFor(spec, index) {
-    if (spec.rack) return SIM.rackAt(spec.rack[0], spec.rack[1], index);
+    const scale = spec.scale === undefined ? 1 : spec.scale;
+    if (spec.rack) return SIM.rackAt(spec.rack[0], spec.rack[1], index) * scale;
     if (spec.keys) {
       let total = 0;
       for (const key of spec.keys) {
         const value = SIM.at(key, index);
         if (Number.isFinite(value)) total += value;
       }
-      return total;
+      return total * scale;
     }
-    return SIM.at(spec.key, index);
+    return SIM.at(spec.key, index) * scale;
   }
 
   function update(index, advance) {
@@ -414,7 +503,10 @@ const DIAGRAM = (function () {
 
     for (const [, entry] of edgeEls) {
       const flow = flowFor(entry.spec, index);
-      const live = Number.isFinite(flow) && flow > 0.05;
+      const reference = entry.spec.ref || REF_KW;
+      // Threshold scales with the edge's own units: 0.05 kW is noise on a busbar
+      // but 0.05 rps is a real trickle of traffic.
+      const live = Number.isFinite(flow) && flow > reference * 6e-5;
       entry.el.classList.toggle('dead', !live);
       if (!live) {
         entry.el.setAttribute('stroke-dashoffset', '0');
@@ -422,9 +514,9 @@ const DIAGRAM = (function () {
       }
       /* Square root, not linear: a 20 kW pump flow still has to be visible next
        * to a 700 kW busbar. */
-      const width = entry.spec.fixed || 2 + 10 * Math.sqrt(Math.min(1, flow / REF_KW));
+      const width = entry.spec.fixed || 2 + 10 * Math.sqrt(Math.min(1, flow / reference));
       entry.el.setAttribute('stroke-width', width.toFixed(2));
-      const speed = entry.spec.fixed ? 20 : 12 + 90 * Math.min(1, flow / REF_KW);
+      const speed = entry.spec.fixed ? 20 : 12 + 90 * Math.min(1, flow / reference);
       entry.el.setAttribute('stroke-dashoffset', (-dashPhase * speed).toFixed(1));
     }
 
@@ -438,6 +530,7 @@ const DIAGRAM = (function () {
       if (parts.state) parts.state.textContent = FMT.words(state);
 
       if (parts.value && spec.value) parts.value.textContent = spec.value(index);
+      if (parts.subtitle && spec.subtitle) parts.subtitle.textContent = spec.subtitle(index);
 
       const group = parts.group;
       group.classList.remove('down', 'alarm', 'idle');
@@ -447,9 +540,14 @@ const DIAGRAM = (function () {
         group.classList.add('alarm');
       } else if (state === 'stopped' || state === 'idle') {
         group.classList.add('idle');
-      } else if (spec.alarmAbove) {
-        const value = SIM.at(spec.alarmAbove.key, index);
-        if (Number.isFinite(value) && value > spec.alarmAbove.limit) group.classList.add('alarm');
+      } else if (spec.alarms) {
+        for (const alarm of spec.alarms) {
+          const value = SIM.at(alarm.key, index);
+          if (Number.isFinite(value) && value > alarm.limit) {
+            group.classList.add('alarm');
+            break;
+          }
+        }
       }
 
       if (parts.gaugeFill) {

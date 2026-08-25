@@ -79,3 +79,14 @@ def test_thinning_returns_a_frame_of_the_requested_size() -> None:
     assert 200 <= len(thinned) <= 400
     assert list(thinned.columns) == list(df.columns)
     assert thin(df, 5000) is df
+
+
+def test_windows_cannot_eat_the_whole_point_budget() -> None:
+    """A small budget against long event windows used to leave one bucket for
+    everything outside them, which draws a plausible and useless chart."""
+    df = _frame(4000, dt=1.0)
+    buckets = plan_buckets(df["t"], df["dt"], target_points=100, windows=[(0.0, 3000.0)], window_step_s=2.0)
+
+    outside = [group for group in buckets.groups if df["t"].iloc[group[0]] >= 3000.0]
+    assert len(outside) > 5, "the unprotected tail collapsed into too few buckets"
+    assert len(buckets) <= 160

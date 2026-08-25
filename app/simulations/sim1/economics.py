@@ -13,9 +13,12 @@ class Tariff:
     peak_usd_per_kwh: float = 0.19
     peak_start_hour: float = 8.0
     peak_end_hour: float = 20.0
+    clock_offset_s: float = 0.0
+    """Wall-clock time that ``t = 0`` corresponds to, so tariff windows line up
+    with the traffic curve rather than with the start of the run."""
 
     def price_at(self, t: float) -> float:
-        hour = (t % DAY_SECONDS) / 3600.0
+        hour = ((t + self.clock_offset_s) % DAY_SECONDS) / 3600.0
         on_peak = self.peak_start_hour <= hour < self.peak_end_hour
         return self.peak_usd_per_kwh if on_peak else self.off_peak_usd_per_kwh
 
