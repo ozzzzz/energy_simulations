@@ -6,7 +6,7 @@ import pytest
 from app.simulations.sim1.electrical.generator import GeneratorState
 from app.simulations.sim1.engine import run_scenario
 from app.simulations.sim1.facility import Facility
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 from app.simulations.sim1.scenarios import build_facility, get_scenario
 
 

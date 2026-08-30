@@ -1,8 +1,8 @@
 import pytest
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import Profile, TickContext
 from app.simulations.sim1.rack import Rack, RackState
-from app.simulations.sim1.workload import Profile, WorkloadProfile
+from app.simulations.sim1.workload import WorkloadProfile
 
 
 def _rack(**kwargs: object) -> Rack:

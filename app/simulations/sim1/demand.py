@@ -20,31 +20,10 @@ no user waiting, so losing capacity delays them rather than failing them.
 import math
 from dataclasses import dataclass, field
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import DemandResult, RequestMix, Segment, Surge, TickContext
 from app.simulations.sim1.rack import Rack
-from app.simulations.sim1.units import clamp, finite_or_none
-from app.simulations.sim1.workload import CorrelatedNoise, Segment, diurnal_factor
-
-
-@dataclass(frozen=True, slots=True)
-class Surge:
-    """A scripted multiplier on arrivals — a launch, a viral moment, a redirect."""
-
-    start_s: float
-    end_s: float
-    multiplier: float = 2.0
-    ramp_s: float = 300.0
-    """Traffic does not step. Ramping in and out over a few minutes is both more
-    honest and what makes the queue's response readable."""
-
-    label: str = ""
-
-    def factor(self, t: float) -> float:
-        if t < self.start_s or t >= self.end_s:
-            return 1.0
-        rise = 1.0 if self.ramp_s <= 0.0 else clamp((t - self.start_s) / self.ramp_s, 0.0, 1.0)
-        fall = 1.0 if self.ramp_s <= 0.0 else clamp((self.end_s - t) / self.ramp_s, 0.0, 1.0)
-        return 1.0 + (self.multiplier - 1.0) * min(rise, fall)
+from app.simulations.sim1.units import finite_or_none
+from app.simulations.sim1.workload import CorrelatedNoise, diurnal_factor
 
 
 @dataclass
@@ -81,29 +60,6 @@ class UserArrivals:
         """Advance the jitter and return this tick's offered rate."""
         base = self.peak_rps * diurnal_factor(t, self.peak_hour, self.low_fraction, self.clock_offset_s)
         return max(0.0, base * self.surge_factor(t) * self._noise.factor(t))
-
-
-@dataclass
-class RequestMix:
-    tokens_per_request: float = 420.0
-    """Mean work per request. Prompt plus generated tokens for a chat turn."""
-
-    slo_latency_s: float = 8.0
-    """How long a user will wait. Requests still queued beyond this are
-    abandoned — a real drop, not a slow success, and the only honest way to make
-    a capacity shortfall show up as something other than growing latency."""
-
-
-@dataclass(frozen=True, slots=True)
-class DemandResult:
-    offered_rps: float
-    served_rps: float
-    dropped_rps: float
-    queued_requests: float
-    queue_latency_s: float | None
-    capacity_rps: float
-    utilisation: float
-    batch_backlog_kwh: float
 
 
 @dataclass

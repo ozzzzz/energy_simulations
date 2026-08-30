@@ -11,28 +11,14 @@ code that counts rows or takes a plain mean over these frames is wrong.
 """
 
 from collections.abc import Generator
-from dataclasses import dataclass
 
 import pandas as pd
 import simpy
 
 from app.simulations.sim1 import kpis as kpi_module
-from app.simulations.sim1.protocols import TickContext
-from app.simulations.sim1.scenarios import ScenarioConfig, build_facility, get_scenario
+from app.simulations.sim1.models import RunResult, ScenarioConfig, TickContext
+from app.simulations.sim1.scenarios import build_facility, get_scenario
 from app.simulations.sim1.telemetry import build_events
-
-
-@dataclass(frozen=True, slots=True)
-class RunResult:
-    scenario: str
-    description: str
-    facility: pd.DataFrame
-    racks: pd.DataFrame
-    events: pd.DataFrame
-    kpis: dict[str, float | str | None]
-    duration_s: float
-    dt_s: float
-    dt_fine_s: float
 
 
 def _in_window(t: float, windows: tuple[tuple[float, float], ...]) -> bool:

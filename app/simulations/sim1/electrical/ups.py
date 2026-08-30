@@ -10,7 +10,7 @@ from enum import StrEnum
 
 from app.simulations.sim1.electrical.battery import BatteryString
 from app.simulations.sim1.electrical.overload import OverloadMonitor
-from app.simulations.sim1.protocols import Delivery, TickContext
+from app.simulations.sim1.models import Delivery, TickContext
 
 _MICRO_KW = 1e-6
 """One milliwatt. Below this, a power flow is rounding noise, not a flow."""
@@ -40,15 +40,12 @@ class Ups:
     trip_ratio: float = 1.5
     hold_limit_s: float = 60.0
 
-    kind: str = field(default="ups", init=False)
     state: UpsState = field(default=UpsState.ONLINE, init=False)
     monitor: OverloadMonitor = field(init=False)
     mains_kw: float = field(default=0.0, init=False)
     battery_out_kw: float = field(default=0.0, init=False)
     charge_kw: float = field(default=0.0, init=False)
     output_kw: float = field(default=0.0, init=False)
-    loss_kwh: float = field(default=0.0, init=False)
-    battery_s: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
         self.monitor = OverloadMonitor(
@@ -139,7 +136,6 @@ class Ups:
         self.battery_out_kw = battery_out
         self.charge_kw = charge_ac
         self.output_kw = delivered
-        self.loss_kwh += loss * ctx.dt / 3600.0
 
         self.monitor.update(delivered, ctx.dt)
         if self.monitor.tripped:
@@ -149,7 +145,6 @@ class Ups:
             self.state = UpsState.BYPASS
         elif battery_out > _MICRO_KW:
             self.state = UpsState.ON_BATTERY
-            self.battery_s += ctx.dt
         elif supply_kw > 0.0:
             self.state = UpsState.ONLINE
         else:

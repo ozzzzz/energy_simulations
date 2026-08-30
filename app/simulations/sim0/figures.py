@@ -1,7 +1,7 @@
-"""Plotly figures for sim-0, shared by the Dash viewer and the static report.
+"""Plotly figures for sim-0.
 
-Extracted from `dashboard.py` so that writing a static HTML report does not have
-to import Dash. The figures themselves are unchanged.
+Kept separate from the report that writes them so a figure can be built, and
+tested, without going through file output.
 """
 
 import pandas as pd

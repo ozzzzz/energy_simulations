@@ -9,7 +9,7 @@ starts "in time" still cannot prevent a load interruption on its own.
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 
 class AtsState(StrEnum):
@@ -34,7 +34,6 @@ class AutomaticTransferSwitch:
     delay a flickering grid makes the switch chatter, which is worse than the
     outage."""
 
-    kind: str = field(default="ats", init=False)
     state: AtsState = field(default=AtsState.ON_PRIMARY, init=False)
     transfers: int = field(default=0, init=False)
     _timer_s: float = field(default=0.0, init=False, repr=False)

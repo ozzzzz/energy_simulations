@@ -9,7 +9,7 @@ compressing nothing.
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 
 class CduState(StrEnum):
@@ -21,7 +21,6 @@ class CduState(StrEnum):
 class Cdu:
     name: str = "cdu"
     pump_demand_kw: float = 20.0
-    kind: str = field(default="cdu", init=False)
     state: CduState = field(default=CduState.RUNNING, init=False)
     pump_kw: float = field(default=0.0, init=False)
 

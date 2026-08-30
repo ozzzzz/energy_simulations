@@ -4,9 +4,9 @@ import math
 
 import pytest
 
-from app.simulations.sim1.demand import RequestMix, Surge, UserArrivals, UserLoad
+from app.simulations.sim1.demand import UserArrivals, UserLoad
 from app.simulations.sim1.engine import run_scenario
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import RequestMix, Surge, TickContext
 from app.simulations.sim1.rack import Rack, RackState
 from app.simulations.sim1.workload import WorkloadProfile
 

@@ -4,7 +4,7 @@
 > исходным планом — [§9](#9-changed-from-the-original-plan).
 
 Code: [`app/simulations/sim1/`](../app/simulations/sim1/).
-Run: `uv run app sim1-list`, then `uv run app sim1-run --scenario normal --open`
+Run: `uv run app sim1-run --scenario normal --open`
 (or any scenario from [§7](#7-scenarios)).
 
 ---
@@ -733,7 +733,7 @@ by design (§2.6). Losing the chillers cooks the hall; losing GPU-seconds does n
 | Traffic | 152 req/s at peak, 420 tokens each | 80 % of capacity |
 | Serving capacity | 190 req/s across two racks | 40,000 tokens/s per rack |
 
-`uv run app sim1-list` prints this from the config, so it cannot drift from the code.
+`design_margins()` computes this from the config, so it cannot drift from the code.
 
 ---
 
@@ -878,7 +878,7 @@ The architectural principle from the plan still holds and is the reason for §7:
 
 ```
 app/simulations/sim1/
-  protocols.py   the probe/request/deliver contract
+  models.py      every shape passed around: contexts, results, config, specs
   facility.py    the four-step tick
   engine.py      SimPy clock, adaptive dt, frame assembly
   demand.py      arrivals, queue, SLO, scheduler
@@ -887,12 +887,12 @@ app/simulations/sim1/
   thermal.py     the one analytic lumped-mass integrator
   electrical/    grid, transformer, ats, ups, battery, generator, pdu, feed, overload
   cooling/       loop, cdu, chiller, crah, plant
-  scenarios.py   SiteConfig, nine scenarios, design_margins()
+  scenarios.py   the nine scenarios, build_facility(), design_margins()
   telemetry.py   column schema, series contract, event log
   kpis.py        run summary, all dt-weighted
   economics.py   tariff, fuel, unserved compute, downtime
   analysis.py    Plotly figures -> analysis.html
-  report.py      artifact writing, scenario comparison
+  report.py      artifact writing
   viz/           the single-file visualization
 tests/simulations/sim1/
   test_facility.py        conservation gate

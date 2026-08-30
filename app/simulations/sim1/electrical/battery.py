@@ -10,7 +10,7 @@ asks for.
 import math
 from dataclasses import dataclass, field
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 from app.simulations.sim1.units import SECONDS_PER_HOUR, clamp, kwh
 
 
@@ -28,9 +28,7 @@ class BatteryString:
     discharge_efficiency: float = 0.96
     charge_efficiency: float = 0.96
 
-    kind: str = field(default="battery", init=False)
     discharged_kwh: float = field(default=0.0, init=False)
-    charged_kwh: float = field(default=0.0, init=False)
     min_soc_seen: float = field(init=False)
 
     def __post_init__(self) -> None:
@@ -84,7 +82,6 @@ class BatteryString:
             return 0.0
         stored_kwh = kwh(allowed, ctx.dt) * self.charge_efficiency
         self.soc = clamp(self.soc + stored_kwh / self.capacity_kwh, 0.0, 1.0)
-        self.charged_kwh += stored_kwh
         return allowed
 
     def autonomy_s(self, load_kw: float) -> float:

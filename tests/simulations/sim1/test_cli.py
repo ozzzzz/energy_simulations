@@ -13,14 +13,6 @@ from app.cli import cli
 runner = CliRunner()
 
 
-def test_sim1_list_describes_every_scenario() -> None:
-    result = runner.invoke(cli, ["sim1-list"])
-    assert result.exit_code == 0
-    for name in ("normal", "grid_outage_gen_ok", "side_a_lost_at_peak", "undersized_cords"):
-        assert name in result.stdout
-    assert "single_side_peak_pct" in result.stdout
-
-
 def test_sim1_run_writes_every_artifact(tmp_path) -> None:
     result = runner.invoke(
         cli,
@@ -75,38 +67,6 @@ def test_sim1_run_can_skip_the_expensive_outputs(tmp_path) -> None:
     assert (directory / "kpis.json").exists()
     assert not (directory / "index.html").exists()
     assert not (directory / "analysis.html").exists()
-
-
-def test_sim1_viz_builds_only_the_page(tmp_path) -> None:
-    result = runner.invoke(
-        cli,
-        [
-            "sim1-viz",
-            "--scenario",
-            "normal",
-            "--duration",
-            "1200",
-            "--out",
-            str(tmp_path),
-            "--no-open",
-            "--viz-points",
-            "200",
-        ],
-    )
-    assert result.exit_code == 0, result.stdout
-    assert (tmp_path / "normal" / "index.html").exists()
-    assert not (tmp_path / "normal" / "analysis.html").exists()
-
-
-def test_sim1_compare_tabulates_several_scenarios(tmp_path) -> None:
-    result = runner.invoke(
-        cli,
-        ["sim1-compare", "--scenarios", "normal,undersized_cords", "--duration", "1800", "--out", str(tmp_path)],
-    )
-    assert result.exit_code == 0, result.stdout
-    csv_text = (tmp_path / "kpis.csv").read_text()
-    assert "normal" in csv_text and "undersized_cords" in csv_text
-    assert (tmp_path / "compare.html").exists()
 
 
 def test_an_unknown_scenario_fails_loudly() -> None:

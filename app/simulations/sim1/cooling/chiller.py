@@ -10,7 +10,7 @@ draw disappears while its heat removal collapses.
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 from app.simulations.sim1.units import clamp
 
 
@@ -34,7 +34,6 @@ class Chiller:
     what damps the two-tick limit cycle that the cooling/power feedback would
     otherwise produce when the site sits exactly at capacity."""
 
-    kind: str = field(default="chiller", init=False)
     state: ChillerState = field(default=ChillerState.RUNNING, init=False)
     demand_kw: float = field(default=0.0, init=False)
     removal_kw: float = field(default=0.0, init=False)

@@ -3,11 +3,13 @@
 Defined once here so that the analysis figures and the visualization payload
 cannot drift apart, and so that adding a component means adding one telemetry
 dict rather than editing three lists of column names.
+
+The per-column contract, ``SeriesSpec``, is a shape and lives in :mod:`models`.
 """
 
-from dataclasses import dataclass
-
 import pandas as pd
+
+from app.simulations.sim1.models import SeriesSpec
 
 STATE_COLUMNS: tuple[str, ...] = (
     "a_grid_state",
@@ -24,28 +26,6 @@ STATE_COLUMNS: tuple[str, ...] = (
     "cool_crah_state",
 )
 """Facility columns whose changes become entries in the event log."""
-
-
-@dataclass(frozen=True, slots=True)
-class SeriesSpec:
-    """How one column survives downsampling and quantization.
-
-    ``agg`` is not cosmetic. Averaging a state code is meaningless, and
-    averaging a rate over a bucket is the only aggregation that preserves
-    energy. ``companion`` ships a second series for columns where the *peak* is
-    the point: a 60 second 105 % UPS overload averaged into a five-minute bucket
-    vanishes, which would downsample away the finding a scenario exists to show.
-    """
-
-    column: str
-    scale: float
-    agg: str = "mean"
-    companion: str | None = None
-    label: str = ""
-
-    @property
-    def companion_column(self) -> str | None:
-        return None if self.companion is None else f"{self.column}__{self.companion}"
 
 
 _KW = 0.1
@@ -130,32 +110,6 @@ RIBBON_COLUMNS: tuple[str, ...] = (
 )
 """State columns rendered as coloured bands under the charts. Cheapest element
 to build and the most informative for reading a failure narrative."""
-
-COLUMN_GROUPS: dict[str, tuple[str, ...]] = {
-    "demand": ("it_demand_kw", "it_drawn_kw", "it_unserved_kw", "mech_kw", "loss_kw", "facility_kw"),
-    "sideA": ("a_delivered_kw", "a_grid_kw", "a_generator_kw", "a_batt_out_kw", "a_ups_load_pct", "a_batt_soc"),
-    "sideB": ("b_delivered_kw", "b_grid_kw", "b_generator_kw", "b_batt_out_kw", "b_ups_load_pct", "b_batt_soc"),
-    "genset": ("gen_output_kw", "gen_fuel_l", "gen_fuel_rate_l_per_h", "gen_run_h"),
-    "cooling": (
-        "cool_liquid_heat_kw",
-        "cool_air_heat_kw",
-        "cool_rejected_liquid_kw",
-        "cool_rejected_air_kw",
-        "cool_chiller_capacity_kw",
-    ),
-    "thermal": ("rack_temp_max_c", "rack_temp_mean_c", "cool_loop_supply_c", "cool_loop_return_c", "cool_crah_room_c"),
-    "users": (
-        "user_offered_rps",
-        "user_served_rps",
-        "user_dropped_rps",
-        "user_capacity_rps",
-        "user_queued_requests",
-        "user_queue_latency_s",
-        "user_utilisation_pct",
-    ),
-    "efficiency": ("pue", "balance_residual_kw"),
-    "cost": ("energy_cost_usd", "diesel_cost_usd", "unserved_cost_usd", "downtime_cost_usd"),
-}
 
 
 def build_events(facility_df: pd.DataFrame, racks_df: pd.DataFrame, scheduled: list[dict]) -> pd.DataFrame:

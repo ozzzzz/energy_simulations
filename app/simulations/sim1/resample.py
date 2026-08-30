@@ -16,20 +16,10 @@ minutes survive at close to full detail while a quiet week collapses.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 import pandas as pd
 
-from app.simulations.sim1.telemetry import SeriesSpec
-
-
-@dataclass(frozen=True, slots=True)
-class Buckets:
-    groups: tuple[tuple[int, ...], ...]
-    """Row-index groups, in time order. Every row belongs to exactly one group."""
-
-    def __len__(self) -> int:
-        return len(self.groups)
+from app.simulations.sim1.models import Buckets, SeriesSpec
 
 
 def plan_buckets(

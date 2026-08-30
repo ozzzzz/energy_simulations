@@ -1,5 +1,5 @@
 from app.simulations.sim1.electrical.ats import AtsSource, AtsState, AutomaticTransferSwitch
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 
 def _ctx(t: float, dt: float = 1.0) -> TickContext:

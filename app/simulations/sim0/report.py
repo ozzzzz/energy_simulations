@@ -1,11 +1,10 @@
 """Static HTML report for a sim-0 run.
 
-The Dash viewer (`app sim0-dashboard`) shows the same figures, but only while a
-server is running and only for one scenario at a time. This writes them to a
-single self-contained file instead, so `sim0-all` leaves something on disk to
-look at — the sim-1 side has had `analysis.html` from the start.
+A run's four figures written to one self-contained file, so `sim0-all` leaves
+something on disk to look at — the sim-1 side has had `analysis.html` from the
+start.
 
-Same figures, same windows as the dashboard's dropdown; plotly.js is inlined
+Whole run, plus the incident window and its complement; plotly.js is inlined
 once, so the file opens with no network at all.
 """
 
@@ -76,10 +75,10 @@ def _kpi_html(kpis: dict) -> str:
 
 
 def _figures_for(df: pd.DataFrame, kpis: dict, scenario, window: str) -> list[go.Figure]:
-    """The dashboard's four figures for one window.
+    """The four figures for one window.
 
     The Sankey uses full-resolution data because it integrates totals; the time
-    series are bucket-averaged first, exactly as the dashboard does it.
+    series are bucket-averaged first.
     """
     windowed = select(df, window, scenario)
     display = resample_for_display(windowed)

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from app.simulations.sim1.electrical.overload import OverloadMonitor
-from app.simulations.sim1.protocols import Delivery, TickContext
+from app.simulations.sim1.models import Delivery, TickContext
 
 
 @dataclass
@@ -17,10 +17,8 @@ class Pdu:
     trip_ratio: float = 1.6
     hold_limit_s: float = 120.0
 
-    kind: str = field(default="pdu", init=False)
     monitor: OverloadMonitor = field(init=False)
     output_kw: float = field(default=0.0, init=False)
-    loss_kwh: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
         self.monitor = OverloadMonitor(
@@ -45,7 +43,6 @@ class Pdu:
         drawn = min(supply_kw, demand_kw / self.efficiency, self.rating_kw * self.trip_ratio)
         delivered = drawn * self.efficiency
         self.output_kw = delivered
-        self.loss_kwh += (drawn - delivered) * ctx.dt / 3600.0
         self.monitor.update(delivered, ctx.dt)
         return Delivery.passive(drawn_kw=drawn, delivered_kw=delivered)
 

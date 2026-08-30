@@ -15,23 +15,8 @@ closed form rather than by quadrature.
 """
 
 import math
-from dataclasses import dataclass
 
-
-@dataclass(frozen=True, slots=True)
-class ThermalStep:
-    temp_c: float
-    """Body temperature at the end of the tick."""
-
-    removed_kws: float
-    """Heat energy (kW*s) that left the body into the sink over the tick."""
-
-    steady_state_c: float
-    """Temperature this body would settle at if the inputs held."""
-
-    def removed_kw_over(self, dt: float) -> float:
-        """Average removal rate over a tick of length ``dt``."""
-        return self.removed_kws / dt if dt > 0.0 else 0.0
+from app.simulations.sim1.models import ThermalStep
 
 
 def step_lumped(
@@ -50,15 +35,15 @@ def step_lumped(
     precision instead of to quadrature error.
     """
     if mass_kws_per_c <= 0.0:
-        return ThermalStep(temp_c=sink_c, removed_kws=heat_in_kw * dt, steady_state_c=sink_c)
+        return ThermalStep(temp_c=sink_c, removed_kws=heat_in_kw * dt)
 
     if ua_kw_per_c <= 0.0:
         # Adiabatic body: nothing leaves, everything accumulates.
         end_c = temp_c + heat_in_kw * dt / mass_kws_per_c
-        return ThermalStep(temp_c=end_c, removed_kws=0.0, steady_state_c=math.inf)
+        return ThermalStep(temp_c=end_c, removed_kws=0.0)
 
     steady_c = sink_c + heat_in_kw / ua_kw_per_c
     decay = math.exp(-dt * ua_kw_per_c / mass_kws_per_c)
     end_c = steady_c + (temp_c - steady_c) * decay
     removed_kws = heat_in_kw * dt - mass_kws_per_c * (end_c - temp_c)
-    return ThermalStep(temp_c=end_c, removed_kws=removed_kws, steady_state_c=steady_c)
+    return ThermalStep(temp_c=end_c, removed_kws=removed_kws)

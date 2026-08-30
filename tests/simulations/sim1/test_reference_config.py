@@ -9,7 +9,8 @@ import pytest
 
 from app.simulations.sim1.demand import UserArrivals
 from app.simulations.sim1.economics import Tariff
-from app.simulations.sim1.scenarios import SiteConfig, design_margins, get_scenario, scenario_names
+from app.simulations.sim1.models import SiteConfig
+from app.simulations.sim1.scenarios import design_margins, get_scenario, scenario_names
 
 
 def test_the_reference_build_matches_the_documented_arithmetic() -> None:

@@ -13,38 +13,9 @@ module only supplies their idle floor and their peak ceiling.
 import math
 import random
 from dataclasses import dataclass, field
-from enum import StrEnum
 
+from app.simulations.sim1.models import PROFILE_SEGMENTS, Profile, Segment, SpikeWindow
 from app.simulations.sim1.units import DAY_SECONDS, clamp
-
-
-class Segment(StrEnum):
-    """Who decides how hard a rack works.
-
-    An INTERACTIVE rack serves user requests: its power follows arriving traffic,
-    and losing capacity means queued and dropped requests. A BATCH rack runs
-    scheduled training: it follows its own profile, and losing capacity delays
-    jobs rather than failing them. The distinction matters because it is what
-    makes a power or cooling failure legible in *user* terms.
-    """
-
-    INTERACTIVE = "interactive"
-    BATCH = "batch"
-
-
-class Profile(StrEnum):
-    IDLE = "idle"
-    INFERENCE = "inference"
-    TRAINING = "training"
-    BURST = "burst"
-
-
-PROFILE_SEGMENTS: dict[Profile, Segment] = {
-    Profile.IDLE: Segment.INTERACTIVE,
-    Profile.INFERENCE: Segment.INTERACTIVE,
-    Profile.TRAINING: Segment.BATCH,
-    Profile.BURST: Segment.BATCH,
-}
 
 
 @dataclass
@@ -79,18 +50,6 @@ class CorrelatedNoise:
         decay = math.exp(-dt / self.tau_s) if dt > 0.0 else 1.0
         self._value = decay * self._value + math.sqrt(max(0.0, 1.0 - decay * decay)) * self._rng.gauss(0.0, 1.0)
         return 1.0 + self.ratio * self._value
-
-
-@dataclass(frozen=True, slots=True)
-class SpikeWindow:
-    """A scripted demand override, as a fraction of the rack's peak."""
-
-    start_s: float
-    end_s: float
-    peak_fraction: float = 1.0
-
-    def contains(self, t: float) -> bool:
-        return self.start_s <= t < self.end_s
 
 
 def diurnal_factor(t: float, peak_hour: float = 14.0, low_fraction: float = 0.45, clock_offset_s: float = 0.0) -> float:

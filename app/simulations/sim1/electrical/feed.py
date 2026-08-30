@@ -8,7 +8,7 @@ from app.simulations.sim1.electrical.grid import GridFeed
 from app.simulations.sim1.electrical.pdu import Pdu
 from app.simulations.sim1.electrical.transformer import Transformer
 from app.simulations.sim1.electrical.ups import Ups
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 
 def split_2n(cap_a: float, cap_b: float, demand_kw: float, cord_limit_kw: float) -> tuple[float, float]:

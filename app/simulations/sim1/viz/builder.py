@@ -17,8 +17,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from app.simulations.sim1.engine import RunResult
-from app.simulations.sim1.scenarios import ScenarioConfig
+from app.simulations.sim1.models import RunResult, ScenarioConfig
 from app.simulations.sim1.viz.payload import build_payload, dumps
 
 CSS_PLACEHOLDER = "/*__SIM_CSS__*/"

@@ -11,7 +11,7 @@ documented separately in §5 and tested by the scenario tests.
 
 import pytest
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 from app.simulations.sim1.scenarios import build_facility, get_scenario
 
 DT = 60.0

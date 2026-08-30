@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from app.simulations.sim1.electrical.overload import OverloadMonitor
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 from app.simulations.sim1.units import SECONDS_PER_HOUR
 
 
@@ -25,7 +25,6 @@ class GeneratorState(StrEnum):
 
 @dataclass
 class FuelTank:
-    capacity_l: float = 4000.0
     level_l: float = 4000.0
     consumed_l: float = field(default=0.0, init=False)
 
@@ -81,7 +80,6 @@ class DieselGenerator:
     seed: int = 0
     tank: FuelTank = field(default_factory=FuelTank)
 
-    kind: str = field(default="generator", init=False)
     state: GeneratorState = field(default=GeneratorState.STOPPED, init=False)
     starts: int = field(default=0, init=False)
     start_failures: int = field(default=0, init=False)

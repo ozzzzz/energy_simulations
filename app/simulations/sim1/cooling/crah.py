@@ -9,7 +9,7 @@ sink temperature up with it.
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 from app.simulations.sim1.units import clamp
 
 
@@ -37,7 +37,6 @@ class Crah:
     room_c: float = 24.0
     control_tau_s: float = 60.0
 
-    kind: str = field(default="crah", init=False)
     state: CrahState = field(default=CrahState.RUNNING, init=False)
     demand_kw: float = field(default=0.0, init=False)
     removal_kw: float = field(default=0.0, init=False)

@@ -1,7 +1,8 @@
 # Energy Simulations
 
 Simulations of AI data center energy systems (SimPy for the clock), with a CLI to run scenarios and
-two viewers: a Dash/Plotly app for sim-0 and a single self-contained HTML page for sim-1.
+two viewers: a static Plotly report for sim-0 and a single self-contained HTML page for sim-1, which
+`app sim1-video` can also record as an MP4.
 
 ## Simulations
 
@@ -25,23 +26,20 @@ uv sync
 
 # KPIs, a CSV of the time series, and a static HTML report with the graphs
 uv run app sim0-run --scenario inference --output out/sim0/inference.csv --html out/sim0/inference.html
-
-# or the same graphs live, in a Dash app on :8050
-uv run app sim0-dashboard --scenario cooling_failure
 ```
 
 `just sim0-all` does all four scenarios into `out/sim0/`. Add `--duration <seconds>` / `--dt <seconds>`
 to override the default week / 1-minute tick.
 
-Both viewers show the same four figures. The centrepiece is a Sankey tracing where every kW of draw
+The report shows four figures. The centrepiece is a Sankey tracing where every kW of draw
 actually goes — demand splits into delivered vs curtailed, delivered draw splits into useful IT compute
 vs PSU/VRM loss, and all of it ends up as heat split between liquid and air — plus a cooling-by-channel
 chart and a per-rack drill-down (demand vs draw, temperature). Where the scenario has a cooling
-incident, both compare the whole run against the incident window and against the run outside it: the
-dashboard with a dropdown, the report with one section each.
+incident, the report compares the whole run against the incident window and against the run outside
+it, one section each.
 
-The figures live in [`figures.py`](app/simulations/sim0/figures.py) and are shared, so the static file
-cannot drift from the live one — and writing it does not import Dash.
+The figures live in [`figures.py`](app/simulations/sim0/figures.py), separate from the report that
+writes them, so a figure can be built and tested without going through file output.
 
 Note: "power available" (electricity the rack can draw — an energy *input*) and "cooling available" (heat
 the site can remove — a capacity for an *output*) are different physical quantities, not two flavors of the
@@ -75,7 +73,7 @@ work; lost capacity is deferred, not failed) — the default build runs two of e
 
 sim-1 shares no code with sim-0. `Rack` and the workload model are deliberately re-derived, not copied.
 
-**Reference build** (`app sim1-list` prints this from the config, so it cannot drift):
+**Reference build** (`design_margins()` computes this from the config, so it cannot drift):
 
 | | |
 |---|---|
@@ -124,10 +122,8 @@ Because the whole run now sits at representative load instead of averaging a qui
 KPI, the drop percentages below are higher than the longer runs used to report.
 
 ```bash
-uv run app sim1-list                                          # scenarios + design margins
-uv run app sim1-run --scenario cooling_failure --open           # KPIs + all artifacts
-uv run app sim1-viz --scenario cooling_failure                 # just the HTML page, fast
-uv run app sim1-compare                                        # every scenario, side by side
+uv run app sim1-run --scenario cooling_failure --open          # KPIs + all artifacts
+uv run app sim1-run --scenario normal --no-analysis --no-csv   # just the HTML page, fast
 uv run app sim1-video --scenario cooling_failure               # the same page, recorded as MP4
 ```
 
@@ -148,7 +144,7 @@ The frame is the KPI header plus the flow diagram; `--timeline` adds the ribbon 
 cost of a third of the diagram's height. A copyright line runs diagonally across the lower right of
 every frame, overlapping the flows there so it cannot be cropped or painted out without taking the
 diagram with it, and the same string goes into the file's metadata. It defaults to
-`© <git config user.name>`; `--watermark` / `--watermark-opacity` set the text and how loud it is.
+`© Bogdan Neterebskii`; `--watermark` / `--watermark-opacity` set the text and how loud it is.
 
 ```bash
 uv run app sim1-video --scenario cooling_failure --seconds 120 --open   # slower still

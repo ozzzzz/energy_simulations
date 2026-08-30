@@ -1,18 +1,19 @@
-"""Site configuration, the eight scenarios, and the design-margin arithmetic.
+"""The nine scenarios, the build they share, and the design-margin arithmetic.
 
 Config is Python dataclasses in a module-level dict, as in sim0 — no YAML. The
 values are typed, the defaults are documented next to the field they belong to,
-and a scenario can compute derived numbers instead of repeating them.
+and a scenario can compute derived numbers instead of repeating them. The
+dataclasses themselves — ``SiteConfig``, ``ScenarioConfig`` — are shapes, so
+they live in :mod:`models`; what is here is the table of scenarios and the code
+that turns one into a running :class:`Facility`.
 """
-
-from dataclasses import dataclass, field
 
 from app.simulations.sim1.cooling.cdu import Cdu
 from app.simulations.sim1.cooling.chiller import Chiller
 from app.simulations.sim1.cooling.crah import Crah
 from app.simulations.sim1.cooling.loop import CoolantLoop
 from app.simulations.sim1.cooling.plant import CoolingPlant
-from app.simulations.sim1.demand import RequestMix, Surge, UserArrivals, UserLoad
+from app.simulations.sim1.demand import UserArrivals, UserLoad
 from app.simulations.sim1.economics import Economics, Tariff
 from app.simulations.sim1.electrical.ats import AutomaticTransferSwitch
 from app.simulations.sim1.electrical.battery import BatteryString
@@ -22,111 +23,15 @@ from app.simulations.sim1.electrical.grid import GridFeed
 from app.simulations.sim1.electrical.pdu import Pdu
 from app.simulations.sim1.electrical.transformer import Transformer
 from app.simulations.sim1.electrical.ups import Ups
-from app.simulations.sim1.events import EventSchedule, ScheduledEvent
+from app.simulations.sim1.events import EventSchedule
 from app.simulations.sim1.facility import Facility
+from app.simulations.sim1.models import RequestMix, ScenarioConfig, ScheduledEvent, SiteConfig, SpikeWindow, Surge
 from app.simulations.sim1.rack import Rack
 from app.simulations.sim1.units import DAY_SECONDS
-from app.simulations.sim1.workload import Segment, SpikeWindow, WorkloadProfile
+from app.simulations.sim1.workload import WorkloadProfile
 
 MINUTE = 60.0
 HOUR = 3600.0
-
-
-@dataclass
-class SiteConfig:
-    """The reference build: 4 x GB300 NVL72 behind a 2N electrical chain."""
-
-    n_racks: int = 4
-    rack_nominal_kw: float = 135.0
-    rack_peak_kw: float = 155.0
-    profiles: tuple[str, ...] | str = ("training", "inference", "inference", "training")
-    """Two racks running scheduled training, two serving user traffic. Scenarios
-    that are purely electrical tests override this with all-batch racks."""
-    spikes: tuple[SpikeWindow, ...] = ()
-
-    grid_capacity_kw: float = 1500.0
-    transformer_capacity_kw: float = 1000.0
-    ups_rating_kw: float = 750.0
-    pdu_rating_kw: float = 800.0
-
-    battery_capacity_kwh: float = 60.0
-    """Per side. Each string holds roughly five minutes at the full *site* load,
-    so healthy 2N gives ten minutes of autonomy and a lost side gives five."""
-
-    generator_rating_kw: float = 800.0
-    generator_start_success_p: float = 0.98
-    generator_start_time_s: float = 30.0
-    fuel_capacity_l: float = 4000.0
-
-    chiller_capacity_kw: float = 600.0
-    crah_capacity_kw: float = 100.0
-    loop_volume_l: float = 5000.0
-    pump_demand_kw: float = 20.0
-
-    cord_limit_kw: float = 900.0
-
-    rack_peak_tokens_per_s: float = 40_000.0
-    peak_rps_per_rack: float = 76.0
-    """Daily-peak request rate per *interactive* rack. Expressed per rack so that
-    changing how many racks serve users changes utilisation, not the traffic —
-    Because peak power and peak throughput are the same point in this model, a
-    rack at its nominal draw is already at ~85 % of its throughput ceiling: 76 rps
-    at 420 tokens each puts it near nominal at the daily peak and leaves ~20 % of
-    its throughput in reserve, which the burstiness eats into before any surge
-    arrives."""
-
-    tokens_per_request: float = 420.0
-    slo_latency_s: float = 8.0
-    traffic_low_fraction: float = 0.35
-    traffic_burstiness: float = 0.08
-    start_hour: float = 0.0
-    """Wall-clock hour that ``t = 0`` corresponds to.
-
-    A failure only means something if it lands on busy traffic, and the daily peak
-    is at 14:00. Rather than run twelve idle hours to get there, an incident
-    scenario starts its clock at 13:00 and schedules the failure a few minutes in
-    — same load, a fraction of the waiting."""
-
-    surges: tuple[Surge, ...] = ()
-
-    seed: int = 1
-
-    @property
-    def it_nominal_kw(self) -> float:
-        return self.n_racks * self.rack_nominal_kw
-
-    @property
-    def it_peak_kw(self) -> float:
-        return self.n_racks * self.rack_peak_kw
-
-    @property
-    def interactive_racks(self) -> int:
-        return sum(1 for profile in self.rack_profiles() if WorkloadProfile(profile).segment is Segment.INTERACTIVE)
-
-    @property
-    def peak_rps(self) -> float:
-        return self.peak_rps_per_rack * self.interactive_racks
-
-    def rack_profiles(self) -> list[str]:
-        if isinstance(self.profiles, str):
-            return [self.profiles] * self.n_racks
-        if len(self.profiles) != self.n_racks:
-            raise ValueError(f"expected {self.n_racks} profiles, got {len(self.profiles)}")
-        return list(self.profiles)
-
-
-@dataclass
-class ScenarioConfig:
-    name: str
-    description: str
-    site: SiteConfig = field(default_factory=SiteConfig)
-    events: tuple[ScheduledEvent, ...] = ()
-    default_duration_s: float = 7 * DAY_SECONDS
-    default_dt_s: float = 60.0
-    default_dt_fine_s: float = 1.0
-    """A week-long run to observe a 30 second generator start is the wrong
-    default, so each scenario carries its own timescale rather than inheriting
-    one global duration."""
 
 
 def design_margins(site: SiteConfig) -> dict[str, float]:
@@ -222,7 +127,7 @@ def build_facility(scenario: ScenarioConfig, seed: int | None = None) -> Facilit
             start_time_s=site.generator_start_time_s,
             start_success_p=site.generator_start_success_p,
             seed=base_seed,
-            tank=FuelTank(capacity_l=site.fuel_capacity_l, level_l=site.fuel_capacity_l),
+            tank=FuelTank(level_l=site.fuel_capacity_l),
         ),
         cooling=CoolingPlant(
             loop=CoolantLoop(volume_l=site.loop_volume_l),

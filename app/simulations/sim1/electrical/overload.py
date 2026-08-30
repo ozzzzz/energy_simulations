@@ -66,10 +66,5 @@ class OverloadMonitor:
     def tripped(self) -> bool:
         return self.state is OverloadState.TRIPPED
 
-    def reset(self) -> None:
-        """Manual reset — nothing in the simulation calls this automatically."""
-        self.state = OverloadState.NORMAL
-        self.hold_s = 0.0
-
     def load_pct(self, throughput_kw: float) -> float:
         return 100.0 * throughput_kw / self.rating_kw if self.rating_kw > 0.0 else 0.0

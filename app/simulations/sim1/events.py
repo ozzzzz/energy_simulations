@@ -4,29 +4,14 @@ Events are data, not code: a scenario is a list of them. That keeps scenarios
 declarative, lets the engine derive its dt-refinement windows from the schedule
 without executing anything, and means the visualization can label the timeline
 from the same source the simulation ran from.
+
+``ScheduledEvent`` itself is a shape and lives in :mod:`models`; the schedule
+that fires them is behaviour and lives here.
 """
 
 from dataclasses import dataclass, field
 
-
-@dataclass(frozen=True, slots=True)
-class ScheduledEvent:
-    t: float
-    target: str
-    """``grid_a`` | ``grid_b`` | ``tx_a`` | ``tx_b`` | ``chiller`` | ``crah`` | ``cdu``"""
-
-    action: str
-    """``offline`` | ``online`` | ``brownout`` | ``trip`` | ``fault`` | ``restore``"""
-
-    settle_s: float = 900.0
-    """How long after this event the engine keeps a fine tick. Different failures
-    play out over very different timescales — an outage resolves in minutes, a
-    warming coolant loop takes the better part of an hour."""
-
-    label: str = ""
-
-    def described(self) -> str:
-        return self.label or f"{self.target} {self.action}"
+from app.simulations.sim1.models import ScheduledEvent
 
 
 @dataclass

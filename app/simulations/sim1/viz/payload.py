@@ -21,7 +21,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.simulations.sim1.engine import RunResult
+from app.simulations.sim1.models import RunResult, ScenarioConfig
 from app.simulations.sim1.resample import (
     aggregate_extreme,
     aggregate_series,
@@ -29,7 +29,7 @@ from app.simulations.sim1.resample import (
     bucket_times,
     plan_buckets,
 )
-from app.simulations.sim1.scenarios import ScenarioConfig, build_facility, design_margins
+from app.simulations.sim1.scenarios import build_facility, design_margins
 from app.simulations.sim1.telemetry import FACILITY_SERIES, RACK_SERIES, RIBBON_COLUMNS
 
 

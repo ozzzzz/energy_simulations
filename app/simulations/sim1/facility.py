@@ -14,18 +14,35 @@ from a modelled one.
 What is here instead is four named phases, each a single pass, with capacity
 travelling down before demand travels up. The non-mutating ``probe`` phase is
 the piece sim0 lacks and the piece that makes 2N work.
+
+That gives every pass-through component the same three methods, and this is the
+only place they are called from:
+
+* ``probe(ctx, upstream_kw) -> float`` — what could I pass down, given what is
+  available above me? Applies rating, efficiency and availability, and **must
+  not mutate**: it is asked before demand exists.
+* ``request(ctx, demand_kw) -> float`` — what do I need from upstream to serve
+  that? Grosses demand up by my own losses. Also non-mutating.
+* ``deliver(ctx, supply_kw, demand_kw) -> Delivery`` — the only mutating call.
+  Passes power down, integrates charge, fuel, timers and winding temperature,
+  and latches transitions. Both quantities are passed because the *gap* between
+  them is exactly what a battery has to cover.
+
+Two components answer a different question on purpose: the ATS probes two
+upstreams because choosing between them is its job, and the cooling side plans
+against a loop temperature it does not own, so it uses ``plan`` and ``commit``.
 """
 
 from dataclasses import dataclass, field
 
 from app.simulations.sim1.cooling.plant import CoolingPlant, CoolingSupply
-from app.simulations.sim1.demand import DemandResult, UserLoad
+from app.simulations.sim1.demand import UserLoad
 from app.simulations.sim1.economics import Economics
 from app.simulations.sim1.electrical.feed import Feed, FeedDelivery, split_2n
 from app.simulations.sim1.electrical.generator import DieselGenerator, GenBus
 from app.simulations.sim1.electrical.grid import GridState
-from app.simulations.sim1.events import EventSchedule, ScheduledEvent
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.events import EventSchedule
+from app.simulations.sim1.models import DemandResult, ScheduledEvent, TickContext
 from app.simulations.sim1.rack import Rack, RackState
 from app.simulations.sim1.units import finite_or_none, kwh, safe_ratio
 

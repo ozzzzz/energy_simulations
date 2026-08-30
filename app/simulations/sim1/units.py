@@ -17,20 +17,11 @@ DAY_SECONDS = 24 * SECONDS_PER_HOUR
 
 # Water: 4.18 kJ per litre per K, i.e. kW*s per litre per °C.
 WATER_KWS_PER_L_C = 4.18
-# Air at ~20 °C: 1.2 kg/m3 * 1.005 kJ/kg/K.
-AIR_KWS_PER_M3_C = 1.206
 
 
 def kwh(kw: float, dt_s: float) -> float:
     """Energy in kWh from a power held constant over ``dt_s`` seconds."""
     return kw * dt_s / SECONDS_PER_HOUR
-
-
-def kw_from_kwh(energy_kwh: float, dt_s: float) -> float:
-    """Average power in kW needed to move ``energy_kwh`` over ``dt_s`` seconds."""
-    if dt_s <= 0.0:
-        return 0.0
-    return energy_kwh * SECONDS_PER_HOUR / dt_s
 
 
 def clamp(value: float, low: float, high: float) -> float:

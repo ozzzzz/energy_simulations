@@ -15,11 +15,12 @@ of a three-hour run still gets its own seconds of video.
 import shutil
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import sync_playwright
+
+from app.simulations.sim1.models import VideoSpec
 
 # Applied once, after load: drop the parts of the page that are interactive or
 # too tall for a frame, size the diagram to whatever is left, and hang the
@@ -85,30 +86,6 @@ _PREPARE = """
   return { diagram: Math.round(height), page: document.body.scrollHeight };
 }
 """
-
-
-@dataclass(frozen=True, slots=True)
-class VideoSpec:
-    """How the clip is recorded. Defaults give a 90 s 1080p file of ~10 MB.
-
-    Ninety seconds rather than forty-five because a run read at 30 payload points
-    per second is faster than anyone can follow the state changes.
-    """
-
-    seconds: float = 90.0
-    fps: int = 30
-    width: int = 1920
-    height: int = 1080
-    scale: int = 2  # device pixel ratio to capture at, then downscale — sharper text
-    watermark: str = ""
-    watermark_opacity: float = 0.22  # against the page's near-black ground
-    timeline: bool = False  # the ribbon strip costs the diagram a third of the frame
-    crf: int = 20
-    quality: int = 92  # JPEG quality of the frames handed to ffmpeg
-
-    @property
-    def frames(self) -> int:
-        return max(2, round(self.seconds * self.fps))
 
 
 def _ffmpeg_command(spec: VideoSpec, destination: Path) -> list[str]:
@@ -188,7 +165,7 @@ def record(
                 tab.wait_for_function("() => window.SIM1 && window.SIM1.points() > 0", timeout=30_000)
             except PlaywrightTimeout as error:
                 raise RuntimeError(
-                    f"{source} never exposed a capture hook — it predates `sim1-video`, rebuild it with `app sim1-viz`"
+                    f"{source} never exposed a capture hook — it predates `sim1-video`, rebuild it with `app sim1-run`"
                 ) from error
             tab.evaluate(_PREPARE, [spec.watermark, spec.watermark_opacity, spec.timeline])
             tab.wait_for_timeout(300)

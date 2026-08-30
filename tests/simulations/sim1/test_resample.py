@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
+from app.simulations.sim1.models import SeriesSpec
 from app.simulations.sim1.resample import aggregate_series, aggregate_state, plan_buckets, thin
-from app.simulations.sim1.telemetry import SeriesSpec
 
 
 def _frame(n: int, dt: float = 10.0) -> pd.DataFrame:

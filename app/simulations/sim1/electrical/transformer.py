@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from app.simulations.sim1.electrical.overload import OverloadMonitor, OverloadState
-from app.simulations.sim1.protocols import Delivery, TickContext
+from app.simulations.sim1.models import Delivery, TickContext
 from app.simulations.sim1.thermal import step_lumped
 
 
@@ -40,11 +40,9 @@ class Transformer:
     than a UPS. Long enough that the winding temperature, not the timer, is
     usually what fails first."""
 
-    kind: str = field(default="transformer", init=False)
     winding_c: float = field(init=False)
     state: TransformerState = field(default=TransformerState.NORMAL, init=False)
     monitor: OverloadMonitor = field(init=False)
-    loss_kwh: float = field(default=0.0, init=False)
     throughput_kw: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
@@ -111,7 +109,6 @@ class Transformer:
         self.throughput_kw = drawn
         loss = min(self.loss_at(drawn), drawn)
         delivered = drawn - loss
-        self.loss_kwh += loss * ctx.dt / 3600.0
 
         overload = self.monitor.update(drawn, ctx.dt)
         self._integrate_thermal(ctx, loss_kw=loss)

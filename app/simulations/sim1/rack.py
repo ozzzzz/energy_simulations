@@ -12,10 +12,10 @@ Two departures from sim0's rack, both needed by the closed cooling loop:
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from app.simulations.sim1.protocols import LoadResult, TickContext
+from app.simulations.sim1.models import LoadResult, Segment, TickContext
 from app.simulations.sim1.thermal import step_lumped
 from app.simulations.sim1.units import kwh
-from app.simulations.sim1.workload import Segment, WorkloadProfile
+from app.simulations.sim1.workload import WorkloadProfile
 
 
 class RackState(StrEnum):
@@ -61,7 +61,6 @@ class Rack:
 
     psu_efficiency: float = 0.97
 
-    kind: str = field(default="rack", init=False)
     segment: Segment = field(init=False)
     temp_c: float = field(init=False)
     state: RackState = field(default=RackState.IDLE, init=False)

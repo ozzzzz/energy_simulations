@@ -13,10 +13,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from app.simulations.sim1.engine import RunResult
 from app.simulations.sim1.kpis import energy_kwh
+from app.simulations.sim1.models import RunResult, ScenarioConfig
 from app.simulations.sim1.resample import thin
-from app.simulations.sim1.scenarios import ScenarioConfig
 
 COLORS = {
     "it": "#38d39f",

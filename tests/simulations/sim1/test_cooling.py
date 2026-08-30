@@ -2,9 +2,9 @@ import pytest
 
 from app.simulations.sim1.cooling.chiller import Chiller
 from app.simulations.sim1.cooling.plant import CoolingPlant
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import Profile, TickContext
 from app.simulations.sim1.rack import Rack
-from app.simulations.sim1.workload import Profile, WorkloadProfile
+from app.simulations.sim1.workload import WorkloadProfile
 
 
 def _ctx(t: float, dt: float = 30.0) -> TickContext:

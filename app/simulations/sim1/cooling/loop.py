@@ -18,7 +18,7 @@ anywhere in that chain.
 
 from dataclasses import dataclass, field
 
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 from app.simulations.sim1.units import WATER_KWS_PER_L_C
 
 

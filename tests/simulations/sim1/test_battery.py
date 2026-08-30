@@ -1,5 +1,5 @@
 from app.simulations.sim1.electrical.battery import BatteryString
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 
 def _ctx(t: float = 0.0, dt: float = 1.0) -> TickContext:

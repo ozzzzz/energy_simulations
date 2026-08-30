@@ -10,9 +10,10 @@ import shutil
 import pytest
 
 from app.simulations.sim1.engine import run_scenario
+from app.simulations.sim1.models import VideoSpec
 from app.simulations.sim1.report import write_artifacts
 from app.simulations.sim1.scenarios import get_scenario
-from app.simulations.sim1.video import VideoSpec, _ffmpeg_command, frame_indices, record
+from app.simulations.sim1.video import _ffmpeg_command, frame_indices, record
 
 
 def test_frame_indices_span_the_payload() -> None:

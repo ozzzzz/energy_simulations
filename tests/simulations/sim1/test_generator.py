@@ -1,7 +1,7 @@
 import pytest
 
 from app.simulations.sim1.electrical.generator import DieselGenerator, FuelTank, GeneratorState
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 
 def _run(gen: DieselGenerator, dt: float, until: float, ask_kw: float = 600.0) -> list[tuple[float, float]]:
@@ -66,7 +66,7 @@ def test_fuel_burn_is_affine_in_load() -> None:
 
 
 def test_running_the_tank_dry_fails_the_generator() -> None:
-    gen = DieselGenerator(start_time_s=0.0, start_success_p=1.0, ramp_s=0.0, tank=FuelTank(capacity_l=5.0, level_l=5.0))
+    gen = DieselGenerator(start_time_s=0.0, start_success_p=1.0, ramp_s=0.0, tank=FuelTank(level_l=5.0))
     _run(gen, dt=60.0, until=1800.0)
 
     assert gen.state is GeneratorState.FAILED

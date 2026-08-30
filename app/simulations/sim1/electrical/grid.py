@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from app.simulations.sim1.protocols import Delivery, TickContext
+from app.simulations.sim1.models import Delivery, TickContext
 
 
 class GridState(StrEnum):
@@ -28,9 +28,7 @@ class GridFeed:
     brownout_factor: float = 0.65
     """Fraction of capacity still available while sagging."""
 
-    kind: str = field(default="grid", init=False)
     state: GridState = field(default=GridState.ONLINE, init=False)
-    imported_kwh: float = field(default=0.0, init=False)
 
     @property
     def available_kw(self) -> float:
@@ -56,7 +54,6 @@ class GridFeed:
 
     def deliver(self, ctx: TickContext, supply_kw: float, demand_kw: float) -> Delivery:
         delivered = min(demand_kw, self.available_kw)
-        self.imported_kwh += delivered * ctx.dt / 3600.0
         return Delivery(delivered_kw=delivered, drawn_kw=delivered)
 
     def telemetry(self) -> dict[str, float | str]:

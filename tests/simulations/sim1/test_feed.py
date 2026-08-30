@@ -10,7 +10,7 @@ from app.simulations.sim1.electrical.grid import GridFeed, GridState
 from app.simulations.sim1.electrical.pdu import Pdu
 from app.simulations.sim1.electrical.transformer import Transformer
 from app.simulations.sim1.electrical.ups import Ups, UpsState
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 DEAD_BUS = GenBus(running=False, available_kw=0.0, total_ask_kw=0.0, output_kw=0.0)
 

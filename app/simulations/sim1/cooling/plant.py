@@ -6,7 +6,7 @@ from app.simulations.sim1.cooling.cdu import Cdu
 from app.simulations.sim1.cooling.chiller import Chiller
 from app.simulations.sim1.cooling.crah import Crah
 from app.simulations.sim1.cooling.loop import CoolantLoop
-from app.simulations.sim1.protocols import TickContext
+from app.simulations.sim1.models import TickContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +47,6 @@ class CoolingPlant:
     rejected_air_kw: float = field(default=0.0, init=False)
     liquid_heat_kw: float = field(default=0.0, init=False)
     air_heat_kw: float = field(default=0.0, init=False)
-    electrical_kwh: float = field(default=0.0, init=False)
 
     def request(self, ctx: TickContext) -> float:
         """Phase 2. Electrical demand, derived from *last* tick's loop state.
@@ -83,7 +82,6 @@ class CoolingPlant:
         self.crah.commit(ctx, crah_kw)
 
         self.granted_kw = pump_kw + chiller_kw + crah_kw
-        self.electrical_kwh += self.granted_kw * ctx.dt / 3600.0
 
         return CoolingSupply(
             supply_c=self.loop.supply_c,
