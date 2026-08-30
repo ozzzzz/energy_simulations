@@ -517,6 +517,21 @@
 
     seek(0);
     requestAnimationFrame(frame);
+
+    /* Frame-by-frame hook for `app sim1-video`. A recorder cannot use the
+     * real-time clock above: it needs to place the playhead exactly and to
+     * advance the flow animation by one frame's worth, whatever wall time the
+     * screenshot itself took. */
+    window.SIM1 = {
+      points: () => SIM.n,
+      show(index, advance) {
+        setPlaying(false);
+        state.index = Math.max(0, Math.min(SIM.n - 1, index));
+        state.simTime = SIM.t[state.index];
+        document.getElementById('scrub').value = String(state.index);
+        render(advance || 0);
+      },
+    };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

@@ -128,6 +128,7 @@ uv run app sim1-list                                          # scenarios + desi
 uv run app sim1-run --scenario cooling_failure --open           # KPIs + all artifacts
 uv run app sim1-viz --scenario cooling_failure                 # just the HTML page, fast
 uv run app sim1-compare                                        # every scenario, side by side
+uv run app sim1-video --scenario cooling_failure               # the same page, recorded as MP4
 ```
 
 `sim1-run` writes to `out/sim1/<scenario>/` (gitignored): `index.html` (the visualization),
@@ -135,12 +136,51 @@ uv run app sim1-compare                                        # every scenario,
 Add `--duration` / `--dt` / `--dt-fine` / `--seed` to override the scenario's own defaults, and
 `--no-viz` / `--no-analysis` / `--no-csv` to skip the slow outputs.
 
+#### Recording a run as video
+
+`sim1-video` plays a run back into an MP4 (`out/sim1/<scenario>/<scenario>.mp4`, 90 s of 1080p by
+default). It drives the same `index.html` in a headless Chromium and pipes each frame straight into
+ffmpeg, so the clip cannot show anything the interactive page would not — there is no second
+renderer to keep in sync. Playback steps through the payload by *index*, not by wall-clock time,
+which is what gives an incident lasting seconds of a three-hour run its own seconds of video.
+
+The frame is the KPI header plus the flow diagram; `--timeline` adds the ribbon strip back at the
+cost of a third of the diagram's height. A copyright line runs diagonally across the lower right of
+every frame, overlapping the flows there so it cannot be cropped or painted out without taking the
+diagram with it, and the same string goes into the file's metadata. It defaults to
+`© <git config user.name>`; `--watermark` / `--watermark-opacity` set the text and how loud it is.
+
+```bash
+uv run app sim1-video --scenario cooling_failure --seconds 120 --open   # slower still
+uv run app sim1-video --scenario grid_outage_gen_fail --no-build      # reuse an existing index.html
+just sim1-videos                                                      # every scenario
+```
+
+Frames are captured at twice the output resolution and downscaled, which costs about ten minutes
+for a 90 s clip; `--scale 1` records roughly three times faster and slightly softer. `--seconds`
+is the playback speed knob: the same run spread over more seconds holds each point longer.
+
+Needs ffmpeg on `PATH` and Chromium for Playwright (`uv run playwright install chromium`, once).
+
 #### How one tick resolves
 
-Each tick answers one question — **how many kW does each rack actually get?** — and
-that depends on two numbers neither of which is known when the tick starts: what the
-equipment can supply *right now* (a transformer may have just tripped) and what the
-load wants *right now* (a rack may be throttling). They also depend on each other.
+Two kinds of quantity, behaving differently. **State** — battery charge, fuel,
+temperatures, timers, the request queue — is simulated the way you would expect: each
+component owns its own and advances it every tick, from its own inputs, without
+touching anyone else's. That is most of the model.
+
+**Flows** — kW right now — have no memory, so they are not integrated forward but
+*solved* within the tick. Electricity has no travel time: when the racks draw 500 kW
+the transformer carries 500 kW in the same instant. Passing flows along one component
+per tick would model a delay that does not exist, and would leave sources and sinks
+disagreeing by up to 600 kW at the moment a failure lands — the exact moment you are
+watching. Solving them keeps the books exact (residual 2.3e-13 kW), which is the
+project's main correctness check.
+
+Solving them takes one question — **how many kW does each rack actually get?** — whose
+answer depends on two numbers neither known when the tick starts: what the equipment
+can supply *right now* (a transformer may have just tripped) and what the load wants
+*right now* (a rack may be throttling). They also depend on each other.
 
 So the tick works through them in a fixed order, four single sweeps, no iteration and
 no going back:
@@ -163,14 +203,13 @@ switches over. Load is divided in proportion to what each side can carry, and th
 line covers both cases: two healthy sides split evenly because their capacities match,
 a dead side takes nothing because its capacity is zero.
 
-The alternatives were worse. Lagging everything by a tick (what sim-0 does) means at
-dt=60 the lag *is* a minute, so a grid loss is invisible to the UPS for a full minute
-and a 30 s generator start cannot resolve. Iterating to a fixed point buys precision a
-teaching model does not need and adds "failed to converge" as a failure you cannot
-tell apart from a modelled one.
+Heat is different and *is* lagged, because heat genuinely propagates slowly — water
+has to move, metal has to warm up. Every thermal coupling is integrated forward one
+tick at a time by whichever component owns it.
 
-[docs/sim_1_plan.md §2.1](docs/sim_1_plan.md) walks a real tick end to end with the
-actual numbers.
+[docs/sim_1_plan.md §2.1–2.3](docs/sim_1_plan.md) covers what is simulated versus what
+is solved, walks a real tick end to end with actual numbers, and gives the measured
+cost of the lag-everything alternative.
 
 Only one quantity is lagged: the **coolant loop's stored heat**. The chiller sizes its demand from the
 loop temperature as of the previous tick, which is both physically true (real capacity control has tens

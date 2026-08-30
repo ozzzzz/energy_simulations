@@ -8,6 +8,8 @@ repos:
       - id: check-json
       - id: check-toml
       - id: check-added-large-files
+        # Reference photos of the modelled equipment live in docs/sim1/images/.
+        args: [--maxkb=5000]
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.19.1

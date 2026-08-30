@@ -1,4 +1,5 @@
 import json
+import subprocess
 import webbrowser
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import typer
 from app.simulations.sim1.engine import run_scenario as sim1_run_scenario
 from app.simulations.sim1.report import write_artifacts, write_comparison
 from app.simulations.sim1.scenarios import design_margins, get_scenario, scenario_names
+from app.simulations.sim1.video import VideoSpec, record
 
 cli = typer.Typer(pretty_exceptions_enable=False)
 
@@ -181,6 +183,69 @@ def sim1_viz(
     typer.echo(f"wrote {page} ({page.stat().st_size / 1024:.0f} KB)")
     if open_browser:
         webbrowser.open(page.resolve().as_uri())
+
+
+def _default_watermark() -> str:
+    """Whoever is running this, as git knows them — overridable with --watermark."""
+    try:
+        name = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        name = ""
+    return f"© {name}" if name else ""
+
+
+@cli.command("sim1-video")
+def sim1_video(
+    scenario: str = typer.Option("cooling_failure", help="Scenario name; see sim1-list"),
+    out: str = typer.Option("out/sim1", help="Output root; reads <out>/<scenario>/index.html"),
+    output: str = typer.Option(None, help="MP4 path (default: <out>/<scenario>/<scenario>.mp4)"),
+    seconds: float = typer.Option(90.0, help="Clip length; longer means each payload point is held longer"),
+    fps: int = typer.Option(30, help="Frames per second"),
+    width: int = typer.Option(1920, help="Video width"),
+    height: int = typer.Option(1080, help="Video height"),
+    watermark: str = typer.Option(None, help="Copyright line, bottom right; default: git user.name"),
+    watermark_opacity: float = typer.Option(0.22, help="0 = invisible, 1 = solid"),
+    timeline: bool = typer.Option(False, help="Keep the timeline ribbons; costs the diagram a third of the frame"),
+    crf: int = typer.Option(20, help="x264 quality; lower is better and bigger"),
+    scale: int = typer.Option(2, help="Capture at this pixel ratio, then downscale; 1 records ~3x faster"),
+    build: bool = typer.Option(True, help="Run the scenario first; --no-build reuses index.html"),
+    open_video: bool = typer.Option(False, "--open/--no-open", help="Open the MP4 when done"),
+) -> None:
+    """Record the sim1 visualization of a scenario as a watermarked MP4."""
+    page = Path(out) / scenario / "index.html"
+    if build:
+        config = get_scenario(scenario)
+        result = sim1_run_scenario(scenario)
+        write_artifacts(result, config, out, viz=True, analysis=False, csv=False)
+    elif not page.exists():
+        raise typer.BadParameter(f"{page} does not exist; drop --no-build to produce it")
+
+    spec = VideoSpec(
+        seconds=seconds,
+        fps=fps,
+        width=width,
+        height=height,
+        watermark=_default_watermark() if watermark is None else watermark,
+        watermark_opacity=watermark_opacity,
+        timeline=timeline,
+        scale=scale,
+        crf=crf,
+    )
+    destination = Path(output) if output else page.parent / f"{scenario}.mp4"
+
+    with typer.progressbar(length=spec.frames, label=f"recording {scenario}") as bar:
+        done = 0
+
+        def tick(number: int, _total: int) -> None:
+            nonlocal done
+            bar.update(number - done)
+            done = number
+
+        video = record(page, destination, spec, progress=tick)
+
+    typer.echo(f"wrote {video} ({video.stat().st_size / 1_048_576:.1f} MB)")
+    if open_video:
+        webbrowser.open(video.resolve().as_uri())
 
 
 @cli.command("sim1-compare")
