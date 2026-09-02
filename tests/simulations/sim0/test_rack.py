@@ -1,6 +1,7 @@
 import pytest
 
-from app.simulations.sim0.rack import Rack, RackState
+from app.simulations.sim0.models import RackState
+from app.simulations.sim0.rack import Rack
 
 
 def test_rack_splits_draw_into_it_power_and_psu_loss() -> None:

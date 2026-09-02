@@ -3,7 +3,8 @@ from collections.abc import Generator
 import pandas as pd
 import simpy
 
-from app.simulations.sim0.rack import Rack, RackState
+from app.simulations.sim0.models import RackState
+from app.simulations.sim0.rack import Rack
 from app.simulations.sim0.scenarios import get_scenario
 
 

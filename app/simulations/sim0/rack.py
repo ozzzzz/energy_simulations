@@ -1,13 +1,6 @@
 from dataclasses import dataclass, field
-from enum import StrEnum
 
-
-class RackState(StrEnum):
-    IDLE = "idle"
-    RUNNING = "running"
-    THROTTLING = "throttling"
-    EMERGENCY_SHUTDOWN = "emergency_shutdown"
-    RECOVERING = "recovering"
+from app.simulations.sim0.models import RackState
 
 
 @dataclass

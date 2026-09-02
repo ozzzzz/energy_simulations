@@ -1,9 +1,11 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import __version__
 from app.config import Config
 from app.v1.router import router as v1_router
 
@@ -38,8 +40,6 @@ def create_app(config: Config) -> FastAPI:
 
     @app.get("/")
     async def root() -> dict:
-        from app import __version__
-
         return {"status": "ok", "version": __version__}
 
     return app
@@ -51,8 +51,6 @@ def deploy_factory() -> FastAPI:
 
 
 def local_factory() -> FastAPI:
-    from dotenv import load_dotenv
-
     load_dotenv()
     config = Config()
     return create_app(config)

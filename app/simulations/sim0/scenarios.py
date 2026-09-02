@@ -1,25 +1,7 @@
-from dataclasses import dataclass, field
+"""The four sim0 scenarios. Their shape lives in :mod:`models`."""
 
-from app.simulations.sim0.inputs import DAY_SECONDS, CoolingInput, PowerInput, WorkloadInput
-
-
-@dataclass
-class ScenarioConfig:
-    name: str
-    profile: str | list[str]
-    seed: int
-    power: PowerInput = field(default_factory=lambda: PowerInput(750.0))
-    cooling: CoolingInput = field(default_factory=CoolingInput)  # 630 kW liquid + 70 kW air by default
-    n_racks: int = 4
-
-    def build_workloads(self) -> list[WorkloadInput]:
-        # each rack gets its own RNG stream (same base shape, independent jitter)
-        # so the 4 traces aren't identical copies of one signal. `profile` can be a
-        # single name shared by every rack, or a list assigning a different profile
-        # per rack (e.g. mixed: rack 1 trains, the rest serve inference).
-        profiles = self.profile if isinstance(self.profile, list) else [self.profile] * self.n_racks
-        return [WorkloadInput(profiles[i], seed=self.seed * 1000 + i) for i in range(self.n_racks)]
-
+from app.simulations.sim0.inputs import DAY_SECONDS, CoolingInput
+from app.simulations.sim0.models import ScenarioConfig
 
 _SCENARIOS: dict[str, ScenarioConfig] = {
     "inference": ScenarioConfig(name="inference", profile="inference", seed=1),
